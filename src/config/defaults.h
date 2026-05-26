@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include "../env.h"
 
 /**
  * @file defaults.h
@@ -95,18 +96,15 @@ constexpr int WDT_UPLOAD_SEC               = 45;
 constexpr int WDT_SLEEP_SEC                = 5;
 
 // ==============================================
-// MQTT Configuration
+// MQTT Configuration (Moved to env.h)
 // ==============================================
-#define MQTT_BROKER_DEFAULT   "broker.emqx.io"
-#define MQTT_PORT_DEFAULT     1883
-#define MQTT_QOS              1
 
 // ==============================================
 // Commissioning Mode
 // ==============================================
 constexpr int   COMMISSIONING_CPU_MHZ      = 80;    // §2.1 — thermal mitigation
 constexpr int   WS_TELEMETRY_INTERVAL_MS   = 1000;  // §2.3 — 1 second
-constexpr int   WS_CAMERA_INTERVAL_MS      = 5000;  // §2.3 — 5 seconds
+constexpr int   WS_CAMERA_INTERVAL_MS      = 10000; // Reduced to 10s to prevent overheating
 constexpr int   AP_LED_BLINK_MS            = 200;   // §2.3 — fast blink
 
 // ==============================================
@@ -121,9 +119,8 @@ constexpr uint64_t EXT0_COOLDOWN_SLEEP_SEC = 300;   // 5 minutes
 constexpr int   MAX_UPLOAD_RETRY_CYCLES    = 5;
 
 // ==============================================
-// NTP Configuration (§11.8)
+// NTP Configuration (§11.8) (URL moved to env.h)
 // ==============================================
-#define NTP_SERVER            "pool.ntp.org"
 constexpr int   NTP_TIMEOUT_SEC            = 5;
 
 // ==============================================
@@ -146,9 +143,8 @@ constexpr int   LED_FAIL_BLINK_MS          = 100;   // 3x fast blink
 constexpr int   LED_FAIL_BLINK_COUNT       = 3;
 
 // ==============================================
-// Backend Defaults
+// Backend Defaults (Port moved to env.h)
 // ==============================================
-constexpr int   DEFAULT_BACKEND_PORT       = 3000;
 
 // ==============================================
 // Token Verification (§11.6)

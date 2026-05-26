@@ -8,6 +8,7 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <Arduino.h>
+#include "../env.h"
 
 /**
  * @file http_client.cpp
@@ -21,12 +22,17 @@
  *  - Total max:  30s
  */
 
+static void getActiveBackendConfig(BackendConfig &cfg) {
+    if (!NVSManager::loadBackendConfig(cfg) || !cfg.valid || strlen(cfg.host) == 0) {
+        strncpy(cfg.host, DEFAULT_BACKEND_HOST, sizeof(cfg.host));
+        cfg.port = DEFAULT_BACKEND_PORT;
+        cfg.valid = true;
+    }
+}
+
 static bool getBackendURL(char *urlBuf, size_t bufLen, const char *path) {
     BackendConfig cfg;
-    if (!NVSManager::loadBackendConfig(cfg) || !cfg.valid) {
-        Serial.println("[HTTP] No backend config in NVS");
-        return false;
-    }
+    getActiveBackendConfig(cfg);
     snprintf(urlBuf, bufLen, "http://%s:%d%s", cfg.host, cfg.port, path);
     return true;
 }
@@ -38,7 +44,7 @@ static bool getBackendURL(char *urlBuf, size_t bufLen, const char *path) {
 bool HTTPClient_::fetchConfig() {
     char url[256];
     char path[64];
-    snprintf(path, sizeof(path), "/api/devices/%s/config", DeviceID::get());
+    snprintf(path, sizeof(path), API_ENDPOINT_CONFIG, DeviceID::get());
     if (!getBackendURL(url, sizeof(url), path)) return false;
 
     Serial.printf("[HTTP] GET %s\n", url);
@@ -102,7 +108,7 @@ static bool uploadImage(const char *url, camera_fb_t *fb, const char *fieldName)
     WiFiClient client;
     // Parse host and port from URL
     BackendConfig cfg;
-    if (!NVSManager::loadBackendConfig(cfg) || !cfg.valid) return false;
+    getActiveBackendConfig(cfg);
 
     Serial.printf("[HTTP] Connecting to %s:%d...\n", cfg.host, cfg.port);
 
@@ -193,7 +199,7 @@ static bool uploadImage(const char *url, camera_fb_t *fb, const char *fieldName)
 
 bool HTTPClient_::uploadBahayaImage(camera_fb_t *fb) {
     char url[256];
-    if (!getBackendURL(url, sizeof(url), "/api/upload-image")) return false;
+    if (!getBackendURL(url, sizeof(url), API_ENDPOINT_UPLOAD)) return false;
     Serial.printf("[HTTP] Uploading BAHAYA image (%u bytes)...\n", fb->len);
 
     bool ok = uploadImage(url, fb, "image");
@@ -208,7 +214,7 @@ bool HTTPClient_::uploadBahayaImage(camera_fb_t *fb) {
 bool HTTPClient_::uploadSnapshot(camera_fb_t *fb) {
     char url[256];
     char path[64];
-    snprintf(path, sizeof(path), "/api/devices/%s/snapshot", DeviceID::get());
+    snprintf(path, sizeof(path), API_ENDPOINT_SNAPSHOT, DeviceID::get());
     if (!getBackendURL(url, sizeof(url), path)) return false;
     Serial.printf("[HTTP] Uploading snapshot (%u bytes)...\n", fb->len);
 
