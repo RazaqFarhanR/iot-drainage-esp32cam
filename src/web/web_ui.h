@@ -49,6 +49,16 @@ namespace WebUI {
     bool isConfigSaved();
 
     /**
+     * Check if a camera preview was requested.
+     */
+    bool isPreviewRequested();
+
+    /**
+     * Clear the camera preview request flag.
+     */
+    void clearPreviewRequest();
+
+    /**
      * Get the generated PIN for serial display.
      */
     const char* getPIN();

@@ -127,7 +127,7 @@ bool MQTTHandler::connect() {
         Watchdog::feed();
         Serial.printf("[MQTT] Connecting to %s:%d...\n", broker, port);
 
-        if (mqttClient.connect(deviceId)) {
+        if (mqttClient.connect(deviceId, MQTT_USER, MQTT_PASS)) {
             Serial.println("[MQTT] Connected!");
             // Subscribe to command topic
             mqttClient.subscribe(topicCmd, MQTT_QOS);

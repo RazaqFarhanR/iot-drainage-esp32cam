@@ -23,6 +23,7 @@ bool WiFiMgr::connect() {
     }
 
     Serial.printf("[WiFi] Connecting to '%s'...\n", cfg.ssid);
+    WiFi.setTxPower(WIFI_POWER_11dBm); // Reduce power to prevent brownout
 
     // Try fast connect with static IP + BSSID + Channel
     bool hasStaticIP = strlen(cfg.ip) > 0 && strlen(cfg.gateway) > 0;
@@ -34,7 +35,7 @@ bool WiFiMgr::connect() {
         gw.fromString(cfg.gateway);
         mask.fromString(cfg.subnet);
 
-        WiFi.config(ip, gw, mask);
+        WiFi.config(ip, gw, mask, gw);
         WiFi.begin(cfg.ssid, cfg.password, cfg.channel, cfg.bssid);
 
         unsigned long start = millis();
@@ -87,6 +88,7 @@ void WiFiMgr::startAP() {
     snprintf(apSSID, sizeof(apSSID), "%s", DeviceID::get());
 
     WiFi.mode(WIFI_AP);
+    WiFi.setTxPower(WIFI_POWER_8_5dBm); // Reduce TX power to prevent overheating
     WiFi.softAP(apSSID);
     delay(100);
 

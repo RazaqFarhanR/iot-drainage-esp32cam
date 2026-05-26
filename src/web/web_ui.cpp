@@ -18,6 +18,7 @@ static AsyncWebServer server(80);
 static AsyncWebSocket ws("/ws");
 
 static bool configSaved = false;
+static bool previewRequested = false;
 static char pin[5] = "0000";
 static int failedAttempts = 0;
 static unsigned long lockoutUntil = 0;
@@ -149,6 +150,16 @@ font-weight:600}
 </div>
 </div>
 
+<div id="countdown" style="text-align:center;color:#f87171;font-weight:bold;margin-bottom:16px;font-size:1.1em;">⏳ Sisa Waktu Setup: 10:00</div>
+
+<!-- Camera Stream -->
+<div class="card">
+<h2>📷 Preview Camera</h2>
+<img id="camStream" src="" alt="Preview" style="width:100%;border-radius:8px;background:#0f172a;min-height:150px;display:none;object-fit:cover;margin-bottom:12px;">
+<div id="camPlaceholder" style="width:100%;border-radius:8px;background:#0f172a;min-height:150px;color:#94a3b8;display:flex;align-items:center;justify-content:center;border:1px dashed #334155;margin-bottom:12px;">Klik tombol untuk melihat gambar</div>
+<button id="btnPreview" class="btn-cal" type="button" onclick="requestPreview()">📸 Ambil Foto Preview</button>
+</div>
+
 <!-- Calibration Wizard -->
 <div class="card">
 <h2>📏 Kalibrasi Sensor</h2>
@@ -207,10 +218,36 @@ lalu tekan tombol di bawah untuk set tinggi sensor.</p>
 </div>
 
 <script>
+var timeLeft = 600;
+setInterval(function(){
+  if(timeLeft > 0) timeLeft--;
+  var m = Math.floor(timeLeft/60);
+  var s = timeLeft%60;
+  var cd = document.getElementById('countdown');
+  if(cd) cd.textContent = '⏳ Sisa Waktu Setup: ' + m + ':' + (s<10?'0':'') + s;
+}, 1000);
+
 var ws;
+function requestPreview(){
+  document.getElementById('btnPreview').textContent = '⏳ Mengambil gambar...';
+  document.getElementById('btnPreview').disabled = true;
+  ws.send(JSON.stringify({cmd:'request_preview'}));
+}
+
 function initWS(){
-  ws=new WebSocket('ws://'+location.hostname+':81/ws');
+  ws=new WebSocket('ws://'+location.hostname+'/ws');
   ws.onmessage=function(e){
+    if(e.data instanceof Blob){
+      var url = URL.createObjectURL(e.data);
+      var img = document.getElementById('camStream');
+      if(img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
+      img.src = url;
+      img.style.display = 'block';
+      document.getElementById('camPlaceholder').style.display = 'none';
+      document.getElementById('btnPreview').textContent = '📸 Ambil Ulang Foto';
+      document.getElementById('btnPreview').disabled = false;
+      return;
+    }
     try{
       var d=JSON.parse(e.data);
       if(d.type==='telemetry'){
@@ -315,7 +352,10 @@ static void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
             if (deserializeJson(doc, (char *)data)) return;
 
             const char *cmd = doc["cmd"] | "";
-            if (strcmp(cmd, "save_config") == 0) {
+            if (strcmp(cmd, "request_preview") == 0) {
+                previewRequested = true;
+                Serial.println("[WebUI] Camera preview requested");
+            } else if (strcmp(cmd, "save_config") == 0) {
                 Serial.println("[WebUI] Saving configuration...");
 
                 // Save WiFi config
@@ -373,12 +413,12 @@ void WebUI::start() {
     // Login page
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *req) {
         if (authenticated) {
-            req->send_P(200, "text/html", HTML_CONFIG);
+            req->send(200, "text/html", HTML_CONFIG);
         } else {
             if (millis() < lockoutUntil) {
-                req->send_P(200, "text/html", HTML_LOCKOUT);
+                req->send(200, "text/html", HTML_LOCKOUT);
             } else {
-                req->send_P(200, "text/html", HTML_LOGIN);
+                req->send(200, "text/html", HTML_LOGIN);
             }
         }
     });
@@ -386,7 +426,7 @@ void WebUI::start() {
     // Auth handler
     server.on("/auth", HTTP_POST, [](AsyncWebServerRequest *req) {
         if (millis() < lockoutUntil) {
-            req->send_P(200, "text/html", HTML_LOCKOUT);
+            req->send(200, "text/html", HTML_LOCKOUT);
             return;
         }
 
@@ -395,7 +435,7 @@ void WebUI::start() {
             authenticated = true;
             failedAttempts = 0;
             Serial.println("[WebUI] PIN correct — authenticated");
-            req->send_P(200, "text/html", HTML_CONFIG);
+            req->send(200, "text/html", HTML_CONFIG);
         } else {
             failedAttempts++;
             Serial.printf("[WebUI] PIN wrong! Attempt %d/%d\n",
@@ -404,9 +444,9 @@ void WebUI::start() {
             if (failedAttempts >= PIN_MAX_ATTEMPTS) {
                 lockoutUntil = millis() + PIN_LOCKOUT_MS;
                 Serial.println("[WebUI] LOCKOUT — 5 minutes");
-                req->send_P(200, "text/html", HTML_LOCKOUT);
+                req->send(200, "text/html", HTML_LOCKOUT);
             } else {
-                req->send_P(200, "text/html", HTML_LOGIN);
+                req->send(200, "text/html", HTML_LOGIN);
             }
         }
     });
@@ -466,4 +506,12 @@ bool WebUI::isConfigSaved() {
 
 const char* WebUI::getPIN() {
     return pin;
+}
+
+bool WebUI::isPreviewRequested() {
+    return previewRequested;
+}
+
+void WebUI::clearPreviewRequest() {
+    previewRequested = false;
 }

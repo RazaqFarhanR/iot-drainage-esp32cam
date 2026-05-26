@@ -104,15 +104,17 @@ void CommissioningMode::run() {
             lastTelemetry = now;
         }
 
-        // --- Send camera frame every 5s (§2.3) — on-demand ---
-        if (WebUI::hasClients() && (now - lastCamera >= WS_CAMERA_INTERVAL_MS)) {
-            if (!Camera::isInitialized()) Camera::init();
-            camera_fb_t *fb = Camera::captureFrame();
-            if (fb) {
-                WebUI::sendCameraFrame(fb->buf, fb->len);
-                Camera::returnFrame(fb);
+        // --- Handle Camera Preview Request ---
+        if (WebUI::isPreviewRequested()) {
+            WebUI::clearPreviewRequest();
+            if (Camera::init()) {
+                camera_fb_t *fb = Camera::captureStableFrame();
+                if (fb) {
+                    WebUI::sendCameraFrame(fb->buf, fb->len);
+                    Camera::returnFrame(fb);
+                }
+                Camera::deinit(); // Turn off camera to save power
             }
-            lastCamera = now;
         }
 
         delay(50);

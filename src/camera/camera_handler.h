@@ -35,6 +35,13 @@ namespace Camera {
     camera_fb_t* captureBestPhoto();
 
     /**
+     * Capture a single stable frame (takes dummy frames first).
+     * Used for on-demand Preview Camera.
+     * @return camera_fb_t* or nullptr
+     */
+    camera_fb_t* captureStableFrame();
+
+    /**
      * Capture a single frame (no multi-exposure).
      * Used for WebSocket streaming in Commissioning mode.
      * @return camera_fb_t* or nullptr

@@ -155,6 +155,22 @@ camera_fb_t* Camera::captureBestPhoto() {
     }
 }
 
+camera_fb_t* Camera::captureStableFrame() {
+    if (!cameraReady && !init()) return nullptr;
+
+    Watchdog::feed();
+
+    // Warmup
+    for (int i = 0; i < CAMERA_DUMMY_FRAMES; i++) {
+        camera_fb_t *dummy = esp_camera_fb_get();
+        if (dummy) esp_camera_fb_return(dummy);
+        delay(50);
+    }
+
+    Watchdog::feed();
+    return esp_camera_fb_get();
+}
+
 camera_fb_t* Camera::captureFrame() {
     if (!cameraReady && !init()) return nullptr;
     return esp_camera_fb_get();
