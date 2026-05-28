@@ -2,17 +2,6 @@
 
 #include <cstdint>
 
-/**
- * @file state_machine.h
- * @brief System mode state machine with transition logic (§1.2, §1.3).
- *
- * Modes:
- *  - COMMISSIONING: AP + WebSocket + Captive Portal
- *  - OPERATIONAL:   STA + Deep Sleep cycles
- *  - MAINTENANCE:   STA + diagnostics (3 min timeout)
- *  - OFFLINE:       Deep Sleep + exponential backoff retry
- */
-
 enum class SystemMode : uint8_t {
     COMMISSIONING = 0,
     OPERATIONAL   = 1,
@@ -22,36 +11,36 @@ enum class SystemMode : uint8_t {
 
 // RTC Memory structure — persists across deep sleep
 struct RTCData {
-    // Smoothing state (§4.1)
+    // Smoothing state
     float    lastDistance;
     bool     hasLastDistance;
 
-    // Offline retry counter (§11.1)
+    // Offline retry counter
     uint16_t offlineRetryCount;
 
-    // WiFi fail counter (§5)
+    // WiFi fail counter
     uint8_t  wifiFailCount;
 
-    // Fault escalation (§11.3)
+    // Fault escalation
     uint8_t  faultCounter;
 
-    // Stuck detection (§3.5)
+    // Stuck detection
     float    lastMeasurements[5];
     uint8_t  stuckCounter;
 
-    // Rain sensor EXT0 cooldown (§11.4)
+    // Rain sensor EXT0 cooldown
     uint8_t  ext0WakeCount;
 
-    // Pending upload (§11.5)
+    // Pending upload
     bool     pendingUpload;
     uint8_t  pendingUploadRetries;
 
-    // NTP time estimation (§11.8)
+    // NTP time estimation
     uint32_t ntpEpochBase;
     uint32_t ntpMillisBase;
     bool     ntpSynced;
 
-    // Baseline drift (§11.9)
+    // Baseline drift
     uint8_t  driftCounter;
 
     // Daily snapshot tracking
@@ -119,7 +108,7 @@ namespace StateMachine {
     void enterDeepSleep(uint64_t sleepSeconds);
 
     /**
-     * Get sleep duration based on offline retry count (§11.1).
+     * Get sleep duration based on offline retry count.
      */
     uint64_t getOfflineBackoffSeconds();
 

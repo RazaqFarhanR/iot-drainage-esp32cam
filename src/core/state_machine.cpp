@@ -6,20 +6,12 @@
 #include <esp_sleep.h>
 #include <driver/rtc_io.h>
 
-/**
- * @file state_machine.cpp
- * @brief State machine implementation with boot logic, double reset
- *        detection, and deep sleep management.
- */
-
 // RTC memory — survives deep sleep, lost on power cycle
 RTC_DATA_ATTR static RTCData rtcData;
 
 static SystemMode currentMode = SystemMode::COMMISSIONING;
 
-// ============================================
 // RTC Data Management
-// ============================================
 
 void StateMachine::validateRTCData() {
     if (rtcData.magic != 0x1F452026) {
@@ -47,9 +39,7 @@ RTCData& StateMachine::getRTCData() {
     return rtcData;
 }
 
-// ============================================
-// Boot Logic (§1.1)
-// ============================================
+// Boot Logic
 
 bool StateMachine::checkDoubleReset() {
     uint32_t now = millis();
@@ -101,7 +91,7 @@ void StateMachine::init() {
         }
     }
 
-    // Conditional boot logic (§1.1): check NVS wifi_cfg
+    // Conditional boot logic: check NVS wifi_cfg
     if (NVSManager::hasValidWiFiConfig()) {
         // Has valid config — go operational
         if (rtcData.offlineRetryCount > 0) {
@@ -127,9 +117,7 @@ void StateMachine::requestMode(SystemMode mode) {
     Serial.printf("[SM] Mode changed → %d\n", (int)mode);
 }
 
-// ============================================
-// Deep Sleep (§4.2, §11.1)
-// ============================================
+// Deep Sleep (,)
 
 uint64_t StateMachine::getOfflineBackoffSeconds() {
     uint16_t retry = rtcData.offlineRetryCount;
@@ -149,7 +137,7 @@ void StateMachine::enterDeepSleep(uint64_t sleepSeconds) {
     // Configure timer wakeup
     esp_sleep_enable_timer_wakeup(sleepSeconds * 1000000ULL);
 
-    // Configure EXT0 rain sensor wake (§11.4 — with cooldown)
+    // Configure EXT0 rain sensor wake ( — with cooldown)
     if (rtcData.ext0WakeCount < EXT0_COOLDOWN_THRESHOLD) {
         esp_sleep_enable_ext0_wakeup(PIN_RAIN_SENSOR, 0);  // Wake on LOW
     } else {

@@ -1,18 +1,5 @@
 #pragma once
 
-/**
- * @file ultrasonic.h
- * @brief AJ-SR04M ultrasonic sensor with median filter & smoothing (§4.1).
- *
- * Sampling:
- *  - Operational: 15 samples, 50ms delay
- *  - Commissioning: 5 samples, 500ms interval
- *  - Diagnostic: 30 samples
- *
- * Filter: Median of valid readings (exclude 0 and >500cm)
- * Smoothing: D_final = 0.4 * median + 0.6 * D_last (via RTC memory)
- */
-
 struct MeasurementResult {
     float   median;           // Median of valid samples
     float   smoothed;         // After smoothing with history (D_final)

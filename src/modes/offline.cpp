@@ -4,17 +4,6 @@
 #include "../connectivity/wifi_manager.h"
 #include <Arduino.h>
 
-/**
- * @file offline.cpp
- * @brief Offline Mode (§11.1) — exponential backoff.
- *
- * Backoff schedule:
- *  Retry 1-3:   5 min
- *  Retry 4-6:   15 min
- *  Retry 7-10:  60 min
- *  Retry >10:   6 hours
- */
-
 void OfflineMode::run() {
     Serial.println("\n╔══════════════════════════════════════╗");
     Serial.println("║    OFFLINE MODE                      ║");

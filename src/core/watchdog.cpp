@@ -3,11 +3,6 @@
 #include <esp_task_wdt.h>
 #include <Arduino.h>
 
-/**
- * @file watchdog.cpp
- * @brief Adaptive WDT implementation — reconfigure per phase (§11.13).
- */
-
 static bool wdtInitialized = false;
 
 static int getTimeoutForPhase(WDTPhase phase) {

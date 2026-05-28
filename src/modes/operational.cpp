@@ -16,30 +16,13 @@
 #include <ArduinoJson.h>
 #include <Arduino.h>
 
-/**
- * @file operational.cpp
- * @brief Operational Mode — 8-step lifecycle per SRS §4.2.
- *
- * Steps:
- *  1. Wake-up (from deep sleep)
- *  2. Connect WiFi (fast connect)
- *  3. Self-Check (validate sensor)
- *  4. Sync Config (HTTP GET thresholds)
- *  5. Measure (15x sampling + median + smoothing)
- *  6. Process (determine NORMAL/WASPADA/BAHAYA)
- *  7. Transmit (MQTT telemetry; if BAHAYA → HTTP POST photo)
- *  8. Sleep (deep sleep based on status)
- */
-
-// ============================================
-// LED Indicators (§4.2)
-// ============================================
+namespace OperationalMode {
 
 static void ledSuccess() {
     pinMode(PIN_STATUS_LED, OUTPUT);
-    digitalWrite(PIN_STATUS_LED, LOW);   // ON
+    digitalWrite(PIN_STATUS_LED, LOW);
     delay(LED_SUCCESS_BLINK_MS);
-    digitalWrite(PIN_STATUS_LED, HIGH);  // OFF
+    digitalWrite(PIN_STATUS_LED, HIGH);
 }
 
 static void ledFail() {
@@ -52,13 +35,8 @@ static void ledFail() {
     }
 }
 
-// ============================================
-// MQTT Command Handler
-// ============================================
-
 static void onMQTTCommand(const char *cmd, JsonDocument &doc) {
     RTCData &rtc = StateMachine::getRTCData();
-
     if (strcmp(cmd, "enter_maintenance") == 0) {
         Serial.println("[OP] MQTT: Maintenance requested");
         rtc.maintenanceRequested = true;
@@ -72,148 +50,102 @@ static void onMQTTCommand(const char *cmd, JsonDocument &doc) {
     }
 }
 
-// ============================================
-// Main Operational Cycle
-// ============================================
-
-void OperationalMode::run() {
-    Serial.println("\n╔══════════════════════════════════════╗");
-    Serial.println("║    OPERATIONAL MODE                  ║");
-    Serial.println("╚══════════════════════════════════════╝\n");
-
-    RTCData &rtc = StateMachine::getRTCData();
-
-    // --- Step 1: Wake-up ---
-    Serial.println("[OP] Step 1: Wake-up");
-    RainSensor::init();
-    RainSensor::updateWakeCounter();
-    bool rainDetected = RainSensor::wasRainWake() || RainSensor::isRaining();
-
-    if (rainDetected) {
-        Serial.println("[OP] Rain detected!");
-    }
-
-    // --- Step 2: Connect WiFi ---
-    Serial.println("[OP] Step 2: Connect WiFi");
+bool connectNetwork() {
     Watchdog::setPhase(WDTPhase::WIFI);
-
     if (!WiFiMgr::connect()) {
         Serial.println("[OP] WiFi failed!");
         ledFail();
-
         bool goOffline = WiFiMgr::handleConnectFailure();
         if (goOffline) {
             StateMachine::requestMode(SystemMode::OFFLINE);
         } else {
             StateMachine::requestMode(SystemMode::COMMISSIONING);
         }
-        return;  // Let main.cpp handle mode transition
+        return false;
     }
+    return true;
+}
 
-    // --- Step 3: Self-Check ---
-    Serial.println("[OP] Step 3: Self-Check");
+MeasurementResult takeMeasurements(SelfCheckResult &checkResult) {
     Watchdog::setPhase(WDTPhase::SENSOR);
     Ultrasonic::init();
-
-    // --- Step 4: Sync Config ---
-    Serial.println("[OP] Step 4: Sync Config (HTTP GET)");
-    NTPSync::sync();
-    HTTPClient_::fetchConfig();  // Best effort — falls back to NVS
-
-    // --- Step 5: Measure ---
-    Serial.println("[OP] Step 5: Measure (15 samples)");
+    
     MeasurementResult measurement = Ultrasonic::measure(OPERATIONAL_SAMPLE_COUNT, true);
+    checkResult = SelfCheck::check(measurement);
+    Serial.printf("[OP] Self-Check: %s\n", checkResult.flagStr);
 
-    // Run self-check on measurement
-    SelfCheckResult check = SelfCheck::check(measurement);
-    Serial.printf("[OP] Self-Check: %s\n", check.flagStr);
-
-    // If spike detected, re-measure without smoothing
-    if (check.shouldSkipSmoothing && measurement.valid) {
+    if (checkResult.shouldSkipSmoothing && measurement.valid) {
         Serial.println("[OP] Spike detected — using raw median");
         measurement.smoothed = measurement.median;
         measurement.waterLevel = Ultrasonic::calculateWaterLevel(measurement.median);
     }
+    return measurement;
+}
 
-    // --- Step 6: Process ---
-    Serial.println("[OP] Step 6: Determine status");
-
-    // Load thresholds
+const char* determineStatus(const MeasurementResult &meas, const SelfCheckResult &check, uint64_t &sleepSec) {
     ThresholdConfig thresh;
     if (!NVSManager::loadThresholdConfig(thresh) || !thresh.valid) {
         thresh.threshold_normal_cm = DEFAULT_THRESHOLD_NORMAL;
         thresh.threshold_bahaya_cm = DEFAULT_THRESHOLD_BAHAYA;
     }
 
-    // Determine status (§6.1)
     const char *status = "NORMAL";
-    uint64_t sleepSeconds = SLEEP_NORMAL_SEC;
+    sleepSec = SLEEP_NORMAL_SEC;
 
     if (check.forceBahaya) {
         status = "BAHAYA";
-        sleepSeconds = SLEEP_BAHAYA_SEC;
-    } else if (measurement.valid) {
-        if (measurement.waterLevel >= thresh.threshold_bahaya_cm) {
+        sleepSec = SLEEP_BAHAYA_SEC;
+    } else if (meas.valid) {
+        if (meas.waterLevel >= thresh.threshold_bahaya_cm) {
             status = "BAHAYA";
-            sleepSeconds = SLEEP_BAHAYA_SEC;
-        } else if (measurement.waterLevel >= thresh.threshold_normal_cm) {
+            sleepSec = SLEEP_BAHAYA_SEC;
+        } else if (meas.waterLevel >= thresh.threshold_normal_cm) {
             status = "WASPADA";
-            sleepSeconds = SLEEP_WASPADA_SEC;
+            sleepSec = SLEEP_WASPADA_SEC;
         }
     }
 
-    // Override sleep from self-check
     if (check.overrideSleepSec > 0) {
-        sleepSeconds = check.overrideSleepSec;
+        sleepSec = check.overrideSleepSec;
     }
 
-    Serial.printf("[OP] Status: %s | WaterLevel: %.1f cm | Sleep: %llus\n",
-                  status, measurement.waterLevel, sleepSeconds);
-
-    // Update baseline (§11.9)
-    if (measurement.valid && !check.forceBahaya) {
-        SelfCheck::updateBaseline(measurement.waterLevel);
+    Serial.printf("[OP] Status: %s | WaterLevel: %.1f cm | Sleep: %llus\n", status, meas.waterLevel, sleepSec);
+    
+    if (meas.valid && !check.forceBahaya) {
+        SelfCheck::updateBaseline(meas.waterLevel);
     }
+    return status;
+}
 
-    // --- Step 7: Transmit ---
-    Serial.println("[OP] Step 7: Transmit");
-
-    // Connect MQTT
+void transmitData(const MeasurementResult &meas, const SelfCheckResult &check, const char *status, bool rainDetected) {
+    RTCData &rtc = StateMachine::getRTCData();
     bool mqttOk = MQTTHandler::connect();
+    
     if (mqttOk) {
         MQTTHandler::setCommandCallback(onMQTTCommand);
-
-        // Publish telemetry
         if (!check.shouldSkipData) {
-            MQTTHandler::publishTelemetry(
-                measurement.waterLevel,
-                measurement.smoothed,
-                status,
-                check.flagStr,
-                rainDetected,
-                WiFiMgr::getRSSI(),
-                NTPSync::isSynced(),
-                rtc.lastUploadFailed
-            );
+            MQTTHandler::publishTelemetry(meas.waterLevel, meas.smoothed, status, check.flagStr,
+                                          rainDetected, WiFiMgr::getRSSI(), NTPSync::isSynced(), rtc.lastUploadFailed);
         } else {
-            // Still send alert for fault conditions
-            MQTTHandler::publishTelemetry(
-                0, 0, status, check.flagStr,
-                rainDetected, WiFiMgr::getRSSI(),
-                NTPSync::isSynced(), rtc.lastUploadFailed
-            );
+            MQTTHandler::publishTelemetry(0, 0, status, check.flagStr, rainDetected,
+                                          WiFiMgr::getRSSI(), NTPSync::isSynced(), rtc.lastUploadFailed);
         }
 
-        // Brief loop to receive any pending MQTT commands
         unsigned long mqttStart = millis();
         while (millis() - mqttStart < 2000) {
             MQTTHandler::loop();
             Watchdog::feed();
             delay(100);
         }
+        ledSuccess();
+    } else {
+        ledFail();
     }
+}
 
-    // Handle pending upload retry (§11.5)
+void handleCameraUploads(const char *status, bool shouldSkipData) {
+    RTCData &rtc = StateMachine::getRTCData();
+
     if (rtc.pendingUpload && rtc.pendingUploadRetries < MAX_UPLOAD_RETRY_CYCLES) {
         Serial.println("[OP] Retrying pending photo upload...");
         Watchdog::setPhase(WDTPhase::UPLOAD);
@@ -237,8 +169,7 @@ void OperationalMode::run() {
         rtc.pendingUploadRetries = 0;
     }
 
-    // BAHAYA: Capture and upload photo (§6.1)
-    if (strcmp(status, "BAHAYA") == 0 && !check.shouldSkipData) {
+    if (strcmp(status, "BAHAYA") == 0 && !shouldSkipData) {
         Serial.println("[OP] BAHAYA — capturing photo...");
         Watchdog::setPhase(WDTPhase::UPLOAD);
         if (Camera::init()) {
@@ -256,7 +187,6 @@ void OperationalMode::run() {
         }
     }
 
-    // Daily snapshot check (§3.4)
     if (NTPSync::isDailySnapshotDue(DAILY_SNAPSHOT_HOUR, DAILY_SNAPSHOT_MINUTE)) {
         Serial.println("[OP] Daily snapshot time!");
         Watchdog::setPhase(WDTPhase::UPLOAD);
@@ -269,39 +199,59 @@ void OperationalMode::run() {
             Camera::deinit();
         }
     }
+}
 
-    // Check if maintenance requested via MQTT
+void goToSleep(uint64_t sleepSec, const SelfCheckResult &check) {
+    RTCData &rtc = StateMachine::getRTCData();
+    MQTTHandler::disconnect();
+    WiFiMgr::disconnect();
+
+    if (RainSensor::isEXT0Cooled()) {
+        sleepSec = EXT0_COOLDOWN_SLEEP_SEC;
+        rtc.ext0WakeCount = 0;
+    }
+
+    if (check.enterMaintenance) {
+        rtc.maintenanceRequested = true;
+    }
+
+    Watchdog::setPhase(WDTPhase::SLEEP);
+    StateMachine::enterDeepSleep(sleepSec);
+}
+
+void run() {
+    Serial.println("\n╔══════════════════════════════════════╗");
+    Serial.println("║    OPERATIONAL MODE                  ║");
+    Serial.println("╚══════════════════════════════════════╝\n");
+
+    RainSensor::init();
+    RainSensor::updateWakeCounter();
+    bool rainDetected = RainSensor::wasRainWake() || RainSensor::isRaining();
+    if (rainDetected) Serial.println("[OP] Rain detected!");
+
+    if (!connectNetwork()) return;
+
+    NTPSync::sync();
+    // HTTPClient_::fetchConfig();  // Disabled: Backend does not support dynamic config yet
+
+    SelfCheckResult checkResult;
+    MeasurementResult measurement = takeMeasurements(checkResult);
+
+    uint64_t sleepSeconds = 0;
+    const char *status = determineStatus(measurement, checkResult, sleepSeconds);
+
+    transmitData(measurement, checkResult, status, rainDetected);
+    handleCameraUploads(status, checkResult.shouldSkipData);
+
+    RTCData &rtc = StateMachine::getRTCData();
     if (rtc.maintenanceRequested) {
         StateMachine::requestMode(SystemMode::MAINTENANCE);
         MQTTHandler::disconnect();
         WiFiMgr::disconnect();
-        return;  // Don't sleep — let main handle maintenance
+        return;
     }
 
-    // Transmit result LED
-    if (mqttOk) {
-        ledSuccess();
-    } else {
-        ledFail();
-    }
-
-    // --- Step 8: Sleep ---
-    Serial.println("[OP] Step 8: Sleep");
-    MQTTHandler::disconnect();
-    WiFiMgr::disconnect();
-
-    // Handle EXT0 cooldown (§11.4)
-    if (RainSensor::isEXT0Cooled()) {
-        sleepSeconds = EXT0_COOLDOWN_SLEEP_SEC;
-        StateMachine::getRTCData().ext0WakeCount = 0;
-    }
-
-    // Enter maintenance if stuck sensor detected
-    if (check.enterMaintenance) {
-        rtc.maintenanceRequested = true;
-        // Will enter maintenance on next wake
-    }
-
-    Watchdog::setPhase(WDTPhase::SLEEP);
-    StateMachine::enterDeepSleep(sleepSeconds);
+    goToSleep(sleepSeconds, checkResult);
 }
+
+} // namespace OperationalMode

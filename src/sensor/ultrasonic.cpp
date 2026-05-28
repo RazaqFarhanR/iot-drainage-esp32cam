@@ -7,11 +7,6 @@
 #include <Arduino.h>
 #include <algorithm>
 
-/**
- * @file ultrasonic.cpp
- * @brief AJ-SR04M measurement with median filter + EMA smoothing (§4.1).
- */
-
 void Ultrasonic::init() {
     pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);
     digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
@@ -55,7 +50,7 @@ MeasurementResult Ultrasonic::measure(int sampleCount, bool applySmoothing) {
         Watchdog::feed();
         float d = measureSingle();
 
-        // Filter artefacts (§4.1): discard 0 and >500
+        // Filter artefacts: discard 0 and >500
         if (d > SENSOR_MIN_CM && d <= SENSOR_MAX_CM) {
             samples[validIdx++] = d;
             if (d < result.minVal) result.minVal = d;
@@ -92,14 +87,14 @@ MeasurementResult Ultrasonic::measure(int sampleCount, bool applySmoothing) {
     float mean = sum / validIdx;
     result.variance = (sumSq / validIdx) - (mean * mean);
 
-    // Smoothing with RTC history (§4.1)
+    // Smoothing with RTC history
     RTCData &rtc = StateMachine::getRTCData();
     if (applySmoothing && rtc.hasLastDistance) {
         // D_final = 0.4 * median_new + 0.6 * D_last
         result.smoothed = (SMOOTHING_ALPHA * result.median) +
                           ((1.0f - SMOOTHING_ALPHA) * rtc.lastDistance);
     } else {
-        // Bootstrap: first cycle — D_final = median (§4.1)
+        // Bootstrap: first cycle — D_final = median
         result.smoothed = result.median;
     }
 
@@ -128,7 +123,7 @@ float Ultrasonic::calculateWaterLevel(float distance) {
         offset = cfg.offset_cm;
     }
 
-    // §6: Water_Level = Height_sensor - Measured_Distance + Offset
+    //: Water_Level = Height_sensor - Measured_Distance + Offset
     float level = height - distance + offset;
     return (level < 0) ? 0.0f : level;
 }

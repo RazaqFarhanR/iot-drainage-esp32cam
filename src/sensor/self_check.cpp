@@ -5,11 +5,6 @@
 #include <Arduino.h>
 #include <cmath>
 
-/**
- * @file self_check.cpp
- * @brief Auto self-check with progressive fault escalation (§3.5, §11.3).
- */
-
 const char* SelfCheck::flagToString(SensorFlag flag) {
     switch (flag) {
         case SensorFlag::OK:                return "OK";
@@ -36,7 +31,7 @@ SelfCheckResult SelfCheck::check(const MeasurementResult &result) {
         rtc.faultCounter++;
         Serial.printf("[SelfCheck] FAULT detected (count: %d)\n", rtc.faultCounter);
 
-        // Progressive escalation (§11.3)
+        // Progressive escalation
         if (rtc.faultCounter > FAULT_ESCALATION_SLEEP) {
             // >10x → sleep 60 min
             out.flag = SensorFlag::SENSOR_SUBMERGED;
@@ -109,7 +104,7 @@ SelfCheckResult SelfCheck::check(const MeasurementResult &result) {
     }
     if (rtc.stuckCounter < 255) rtc.stuckCounter++;
 
-    // --- Check 5: SENSOR_DISPLACED (baseline drift §11.9) ---
+    // --- Check 5: SENSOR_DISPLACED (baseline drift) ---
     float baseline = 0;
     if (NVSManager::loadBaselineAvg(baseline) && baseline > 0) {
         float drift = fabsf(result.waterLevel - baseline);

@@ -11,21 +11,6 @@
 #include "modes/offline.h"
 #include <driver/rtc_io.h>
 
-/**
- * @file main.cpp
- * @brief IFMS — Intelligent Flood Monitoring System
- *        Entry point with mode dispatcher.
- *
- * Architecture: Clean modular design
- *  - config/    → Pin & constant definitions
- *  - core/      → State machine, NVS, Device ID, Watchdog
- *  - connectivity/ → WiFi, MQTT, HTTP, NTP
- *  - sensor/    → Ultrasonic, Rain, Self-check
- *  - camera/    → OV2640 handler
- *  - modes/     → Commissioning, Operational, Maintenance, Offline
- *  - web/       → Captive portal UI
- */
-
 void setup() {
     Serial.begin(115200);
     delay(500);

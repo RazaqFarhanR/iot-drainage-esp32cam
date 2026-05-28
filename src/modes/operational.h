@@ -1,15 +1,17 @@
 #pragma once
 
-/**
- * @file operational.h
- * @brief Operational Mode — STA + Deep Sleep cycle (§4.2).
- */
+#include "../sensor/ultrasonic.h"
+#include "../sensor/self_check.h"
+#include <stdint.h>
 
 namespace OperationalMode {
-    /**
-     * Run one operational cycle.
-     * Lifecycle: Wake → Connect → Self-Check → Sync Config
-     *            → Measure → Process → Transmit → Sleep
-     */
     void run();
+
+    // Private helpers for readability
+    bool connectNetwork();
+    MeasurementResult takeMeasurements(SelfCheckResult &checkResult);
+    const char* determineStatus(const MeasurementResult &meas, const SelfCheckResult &check, uint64_t &sleepSec);
+    void transmitData(const MeasurementResult &meas, const SelfCheckResult &check, const char *status, bool rainDetected);
+    void handleCameraUploads(const char *status, bool shouldSkipData);
+    void goToSleep(uint64_t sleepSec, const SelfCheckResult &check);
 }

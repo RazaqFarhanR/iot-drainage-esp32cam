@@ -1,26 +1,13 @@
 #pragma once
 
-/**
- * @file pins.h
- * @brief GPIO Pin Definitions for ESP32-CAM AI-Thinker Module
- *
- * WARNING: GPIO 12 & GPIO 15 are strapping pins.
- * - GPIO 12 must be LOW at boot (pull-down 10kΩ)
- * - GPIO 15 must not be HIGH at boot (pull-down 10kΩ)
- */
-
-// ==============================================
 // Sensor & Actuator Pins
-// ==============================================
 #define PIN_ULTRASONIC_TRIG   12    // AJ-SR04M Trigger (strapping pin!)
 #define PIN_ULTRASONIC_ECHO   13    // AJ-SR04M Echo (pull-down 10kΩ)
 #define PIN_RAIN_SENSOR       GPIO_NUM_15  // Rain DO — EXT0 wake (active LOW, strapping pin!)
 #define PIN_STATUS_LED        33    // On-board red LED
 #define PIN_FLASH_LED         4     // Camera flash LED
 
-// ==============================================
 // OV2640 Camera Pins (AI-Thinker Board)
-// ==============================================
 #define CAM_PIN_PWDN          32
 #define CAM_PIN_RESET         -1    // Not connected
 #define CAM_PIN_XCLK          0

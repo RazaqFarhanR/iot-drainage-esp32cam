@@ -2,17 +2,6 @@
 
 #include "esp_camera.h"
 
-/**
- * @file camera_handler.h
- * @brief Camera management with multi-frame exposure (§11.11).
- *
- * Features:
- *  - PSRAM detection (UXGA vs SVGA fallback)
- *  - Multi-frame exposure: 3 dummy + flash OFF + flash ON → pick best
- *  - On-demand snapshot for maintenance
- *  - Frame capture for WebSocket streaming
- */
-
 namespace Camera {
     /**
      * Initialize camera module.
@@ -27,7 +16,7 @@ namespace Camera {
     void deinit();
 
     /**
-     * Capture best photo using multi-frame exposure (§11.11).
+     * Capture best photo using multi-frame exposure.
      * Takes 3 dummy frames, then flash OFF/ON comparison.
      * Caller must return frame buffer via returnFrame().
      * @return camera_fb_t* or nullptr if failed

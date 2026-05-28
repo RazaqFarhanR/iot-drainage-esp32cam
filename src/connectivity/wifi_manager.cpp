@@ -7,12 +7,6 @@
 #include <WiFi.h>
 #include <Arduino.h>
 
-/**
- * @file wifi_manager.cpp
- * @brief Smart WiFi with fast connect via BSSID/Channel,
- *        static IP, DHCP fallback, and auto-recovery (§5).
- */
-
 bool WiFiMgr::connect() {
     Watchdog::setPhase(WDTPhase::WIFI);
 
@@ -139,7 +133,7 @@ bool WiFiMgr::handleConnectFailure() {
     Serial.printf("[WiFi] Fail count: %d/%d\n", rtc.wifiFailCount, WIFI_MAX_FAIL_COUNT);
 
     if (rtc.wifiFailCount >= WIFI_MAX_FAIL_COUNT) {
-        // §5: 3x fail → reset NVS → commissioning
+        //: 3x fail → reset NVS → commissioning
         Serial.println("[WiFi] Max failures reached → clearing WiFi config");
         NVSManager::clearWiFiConfig();
         rtc.wifiFailCount = 0;

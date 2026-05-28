@@ -8,12 +8,6 @@
 #include <ArduinoJson.h>
 #include <Arduino.h>
 
-/**
- * @file web_ui.cpp
- * @brief Captive portal implementation with PIN auth, config form,
- *        calibration wizard, and WebSocket telemetry streaming.
- */
-
 static AsyncWebServer server(80);
 static AsyncWebSocket ws("/ws");
 
@@ -24,9 +18,7 @@ static int failedAttempts = 0;
 static unsigned long lockoutUntil = 0;
 static bool authenticated = false;
 
-// ============================================
 // HTML Templates
-// ============================================
 
 static const char HTML_LOGIN[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
@@ -300,9 +292,7 @@ document.getElementById('configForm').onsubmit=function(e){
 </html>
 )rawliteral";
 
-// ============================================
 // PIN Management
-// ============================================
 
 static void generatePIN() {
     AuthConfig auth;
@@ -327,9 +317,7 @@ static void generatePIN() {
     Serial.printf("========================================\n\n");
 }
 
-// ============================================
 // WebSocket Event Handler
-// ============================================
 
 static void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
                        AwsEventType type, void *arg, uint8_t *data, size_t len) {
@@ -395,9 +383,7 @@ static void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
     }
 }
 
-// ============================================
 // Public API
-// ============================================
 
 void WebUI::start() {
     generatePIN();

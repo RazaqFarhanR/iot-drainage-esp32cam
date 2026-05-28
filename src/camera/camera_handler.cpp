@@ -4,23 +4,9 @@
 #include "../core/watchdog.h"
 #include <Arduino.h>
 
-/**
- * @file camera_handler.cpp
- * @brief Camera implementation with multi-frame exposure (§11.11).
- *
- * Multi-frame process:
- *  1. Capture 3 dummy frames (warmup, discard)
- *  2. Capture frame with flash OFF
- *  3. Capture frame with flash ON
- *  4. Compare average brightness
- *  5. Return the brighter frame
- */
-
 static bool cameraReady = false;
 
-// ============================================
 // Brightness Analysis
-// ============================================
 
 static float calculateBrightness(camera_fb_t *fb) {
     if (!fb || fb->len == 0) return 0.0f;
@@ -35,9 +21,7 @@ static float calculateBrightness(camera_fb_t *fb) {
     return (count > 0) ? ((float)sum / count) : 0.0f;
 }
 
-// ============================================
 // Public API
-// ============================================
 
 bool Camera::init() {
     if (cameraReady) return true;
@@ -64,7 +48,7 @@ bool Camera::init() {
     config.xclk_freq_hz = 20000000;
     config.pixel_format = PIXFORMAT_JPEG;
 
-    // §10: PSRAM detection — UXGA if available, SVGA fallback
+    //: PSRAM detection — UXGA if available, SVGA fallback
     if (psramFound()) {
         config.frame_size = FRAMESIZE_UXGA;
         config.jpeg_quality = 8;
@@ -113,7 +97,7 @@ camera_fb_t* Camera::captureBestPhoto() {
 
     Watchdog::feed();
 
-    // Step 1: Warmup — capture and discard dummy frames (§11.11)
+    // Step 1: Warmup — capture and discard dummy frames
     for (int i = 0; i < CAMERA_DUMMY_FRAMES; i++) {
         camera_fb_t *dummy = esp_camera_fb_get();
         if (dummy) esp_camera_fb_return(dummy);

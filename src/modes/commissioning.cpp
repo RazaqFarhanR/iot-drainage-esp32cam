@@ -11,24 +11,12 @@
 #include "../web/web_ui.h"
 #include <Arduino.h>
 
-/**
- * @file commissioning.cpp
- * @brief Commissioning Mode implementation (§2).
- *
- * - CPU clock 80MHz for thermal mitigation
- * - AP mode with captive portal
- * - WebSocket telemetry every 1s
- * - Camera frame every 5s (on-demand)
- * - LED blink 200ms
- * - Timeout: 2 min idle / 10 min max
- */
-
 void CommissioningMode::run() {
     Serial.println("\n╔══════════════════════════════════════╗");
     Serial.println("║    COMMISSIONING MODE                ║");
     Serial.println("╚══════════════════════════════════════╝\n");
 
-    // §2.1: CPU throttle for thermal mitigation
+    // CPU throttle for thermal mitigation
     setCpuFrequencyMhz(COMMISSIONING_CPU_MHZ);
     Serial.printf("[COMM] CPU throttled to %d MHz\n", COMMISSIONING_CPU_MHZ);
 
@@ -38,7 +26,7 @@ void CommissioningMode::run() {
     WiFiMgr::startAP();
     WebUI::start();
 
-    // LED setup — fast blink indicates AP mode (§2.3)
+    // LED setup — fast blink indicates AP mode
     pinMode(PIN_STATUS_LED, OUTPUT);
 
     unsigned long startTime = millis();
@@ -81,19 +69,19 @@ void CommissioningMode::run() {
             hadClientEver = true;
         }
 
-        // --- Timeout: 2 min no client → exit (§2.1) ---
+        // --- Timeout: 2 min no client → exit ---
         if (!hadClientEver && elapsed > COMMISSIONING_IDLE_MS) {
             Serial.println("[COMM] No client connected in 2 min — exiting");
             break;
         }
 
-        // --- Timeout: 10 min max (§1.3) ---
+        // --- Timeout: 10 min max ---
         if (elapsed > COMMISSIONING_TIMEOUT_MS) {
             Serial.println("[COMM] 10 min timeout — exiting");
             break;
         }
 
-        // --- Send telemetry every 1s (§2.3) ---
+        // --- Send telemetry every 1s ---
         if (WebUI::hasClients() && (now - lastTelemetry >= WS_TELEMETRY_INTERVAL_MS)) {
             // Quick measurement (5 samples, no smoothing)
             MeasurementResult m = Ultrasonic::measure(COMMISSIONING_SAMPLE_COUNT, false);

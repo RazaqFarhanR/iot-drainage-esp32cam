@@ -5,14 +5,6 @@
 #include <time.h>
 #include <sys/time.h>
 
-/**
- * @file ntp_sync.cpp
- * @brief NTP sync implementation — once per wake cycle (§11.8).
- *
- * Uses configTime() from ESP-IDF. Falls back to RTC memory estimation
- * if NTP server unreachable.
- */
-
 static bool synced = false;
 
 bool NTPSync::sync() {

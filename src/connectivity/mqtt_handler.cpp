@@ -8,11 +8,6 @@
 #include <Arduino.h>
 #include <mbedtls/md.h>
 
-/**
- * @file mqtt_handler.cpp
- * @brief MQTT implementation with HMAC-SHA256 token verification.
- */
-
 static WiFiClient mqttWiFiClient;
 static PubSubClient mqttClient(mqttWiFiClient);
 static MQTTCommandCallback cmdCallback = nullptr;
@@ -22,9 +17,7 @@ static char topicTelemetry[64];
 static char topicDiagnostic[64];
 static char topicCmd[64];
 
-// ============================================
-// HMAC-SHA256 Token Verification (§11.6)
-// ============================================
+// HMAC-SHA256 Token Verification
 
 static bool verifyToken(const char *token, uint32_t timestamp) {
     if (!token || strlen(token) == 0) return false;
@@ -65,9 +58,7 @@ static bool verifyToken(const char *token, uint32_t timestamp) {
     return (strcmp(token, computed) == 0);
 }
 
-// ============================================
 // MQTT Callback
-// ============================================
 
 static void mqttCallback(char *topic, byte *payload, unsigned int length) {
     char message[512];
@@ -84,7 +75,7 @@ static void mqttCallback(char *topic, byte *payload, unsigned int length) {
         return;
     }
 
-    // Token verification (§11.6)
+    // Token verification
     const char *token = doc["token"] | "";
     uint32_t ts = doc["ts"] | 0;
     if (strlen(token) > 0 && !verifyToken(token, ts)) {
@@ -98,14 +89,12 @@ static void mqttCallback(char *topic, byte *payload, unsigned int length) {
     }
 }
 
-// ============================================
 // Public API
-// ============================================
 
 bool MQTTHandler::connect() {
     // Build topics
     const char *deviceId = DeviceID::get();
-    snprintf(topicTelemetry, sizeof(topicTelemetry), "ifms/%s/telemetry", deviceId);
+    snprintf(topicTelemetry, sizeof(topicTelemetry), "%s", MQTT_TOPIC_TELEMETRY);
     snprintf(topicDiagnostic, sizeof(topicDiagnostic), "ifms/%s/diagnostic", deviceId);
     snprintf(topicCmd, sizeof(topicCmd), "ifms/%s/cmd", deviceId);
 
@@ -164,10 +153,11 @@ bool MQTTHandler::publishTelemetry(float waterLevel, float rawDistance,
     doc["device_id"] = DeviceID::get();
     doc["location"] = DeviceID::getLocation();
     doc["water_level_cm"] = waterLevel;
-    doc["raw_distance_cm"] = rawDistance;
+    doc["water_distance"] = rawDistance;
     doc["status"] = status;
     doc["sensor_flag"] = sensorFlag;
     doc["rain_detected"] = rainDetected;
+    doc["rain_intensity"] = rainDetected ? 1.0 : 0.0;
     doc["rssi_dbm"] = rssi;
     doc["time_synced"] = timeSynced;
     doc["timestamp"] = (uint32_t)time(nullptr);

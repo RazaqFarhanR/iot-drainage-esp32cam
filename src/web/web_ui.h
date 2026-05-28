@@ -3,14 +3,6 @@
 #include <cstdint>
 #include <cstddef>
 
-/**
- * @file web_ui.h
- * @brief Captive portal Web UI with PIN auth (§2.4, §11.7).
- *
- * Serves configuration form at http://192.168.4.1
- * Protected by 4-digit PIN authentication.
- */
-
 namespace WebUI {
     /**
      * Initialize and start web server + WebSocket server.

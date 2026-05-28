@@ -5,11 +5,6 @@
 #include <Arduino.h>
 #include <esp_sleep.h>
 
-/**
- * @file rain_sensor.cpp
- * @brief Rain sensor with EXT0 wake cooldown to prevent false positive loops (§11.4).
- */
-
 void RainSensor::init() {
     pinMode(PIN_RAIN_SENSOR, INPUT_PULLUP);
     Serial.println("[Rain] Sensor initialized");

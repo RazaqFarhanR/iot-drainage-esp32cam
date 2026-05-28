@@ -1,11 +1,5 @@
 #pragma once
 
-/**
- * @file wifi_manager.h
- * @brief Smart WiFi management with fast connect, DHCP fallback,
- *        and auto-recovery (§5).
- */
-
 namespace WiFiMgr {
     /**
      * Connect to WiFi using saved NVS credentials.

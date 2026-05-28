@@ -2,16 +2,6 @@
 
 #include <ArduinoJson.h>
 
-/**
- * @file mqtt_handler.h
- * @brief MQTT pub/sub with token verification (§9.1, §11.6).
- *
- * Topics:
- *  - Publish:   ifms/{device_id}/telemetry
- *  - Publish:   ifms/{device_id}/diagnostic
- *  - Subscribe: ifms/{device_id}/cmd
- */
-
 // Callback type for incoming MQTT commands
 typedef void (*MQTTCommandCallback)(const char *cmd, JsonDocument &doc);
 
@@ -33,7 +23,7 @@ namespace MQTTHandler {
     bool isConnected();
 
     /**
-     * Publish telemetry data (§9.1).
+     * Publish telemetry data.
      */
     bool publishTelemetry(float waterLevel, float rawDistance,
                           const char *status, const char *sensorFlag,
@@ -41,7 +31,7 @@ namespace MQTTHandler {
                           bool lastUploadFailed);
 
     /**
-     * Publish diagnostic results (§3.2).
+     * Publish diagnostic results.
      */
     bool publishDiagnostic(int sampleCount, float median,
                            float variance, float minVal, float maxVal,

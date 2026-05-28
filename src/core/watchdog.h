@@ -1,10 +1,5 @@
 #pragma once
 
-/**
- * @file watchdog.h
- * @brief Adaptive Watchdog Timer per operation phase (§11.13).
- */
-
 enum class WDTPhase {
     BOOT,       // 30s
     WIFI,       // 15s

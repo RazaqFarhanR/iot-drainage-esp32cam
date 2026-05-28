@@ -1,10 +1,5 @@
 #pragma once
 
-/**
- * @file commissioning.h
- * @brief Commissioning Mode — AP + WebSocket + Captive Portal (§2).
- */
-
 namespace CommissioningMode {
     /**
      * Run commissioning mode.

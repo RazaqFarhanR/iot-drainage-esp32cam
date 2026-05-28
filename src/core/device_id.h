@@ -1,11 +1,5 @@
 #pragma once
 
-/**
- * @file device_id.h
- * @brief Auto-generate device ID from MAC address (§11.10).
- * Format: "IFMS-XXYYZZ" (3 last bytes of MAC in hex)
- */
-
 namespace DeviceID {
     /**
      * Initialize device ID. Generates from MAC if not in NVS.

@@ -3,14 +3,6 @@
 #include <cstdint>
 #include <cstring>
 
-/**
- * @file nvs_manager.h
- * @brief NVS storage with CRC32 write-verify pattern (§11.2).
- *
- * Namespaces: wifi_cfg, sensor_cfg, threshold_cfg, auth_cfg, device_cfg
- * Uses staging namespace for atomic writes with CRC32 verification.
- */
-
 // WiFi configuration stored in NVS
 struct WiFiConfig {
     char     ssid[33];
@@ -70,7 +62,7 @@ namespace NVSManager {
 
     /**
      * Check if NVS contains valid WiFi credentials.
-     * Used for conditional boot logic (§1.1).
+     * Used for conditional boot logic.
      */
     bool hasValidWiFiConfig();
 
@@ -99,12 +91,12 @@ namespace NVSManager {
     bool loadDeviceConfig(DeviceConfig &cfg);
     bool saveDeviceConfig(const DeviceConfig &cfg);
 
-    // --- Baseline Drift (§11.9) ---
+    // --- Baseline Drift ---
     bool loadBaselineAvg(float &avg);
     bool saveBaselineAvg(float avg);
 
     /**
-     * Factory reset — erase all NVS namespaces (§10).
+     * Factory reset — erase all NVS namespaces.
      */
     bool factoryReset();
 

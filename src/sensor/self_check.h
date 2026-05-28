@@ -3,19 +3,6 @@
 #include <cstdint>
 #include "ultrasonic.h"
 
-/**
- * @file self_check.h
- * @brief Auto self-check & progressive fault escalation (§3.5, §11.3).
- *
- * Flags:
- *  - SENSOR_FAULT:    median=0 or >500
- *  - SENSOR_UNSTABLE: variance >50cm²
- *  - SPIKE_DETECTED:  Δ >30cm in 1 cycle
- *  - SENSOR_STUCK:    constant for 5 cycles
- *  - SENSOR_SUBMERGED: fault >3x (forced BAHAYA)
- *  - SENSOR_DISPLACED: baseline drift >40cm for 3 cycles
- */
-
 enum class SensorFlag {
     OK,
     SENSOR_FAULT,
@@ -46,7 +33,7 @@ namespace SelfCheck {
     SelfCheckResult check(const MeasurementResult &result);
 
     /**
-     * Update baseline average (§11.9).
+     * Update baseline average.
      * Called after each valid measurement.
      * @param waterLevel Current water level
      */

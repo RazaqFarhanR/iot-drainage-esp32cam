@@ -10,16 +10,6 @@
 #include <ArduinoJson.h>
 #include <Arduino.h>
 
-/**
- * @file maintenance.cpp
- * @brief Maintenance Mode (§3) — remote diagnostics.
- *
- * - Activated via MQTT command or SENSOR_STUCK
- * - 30-sample sensor diagnostic
- * - On-demand camera snapshot
- * - 3-minute timeout
- */
-
 static bool snapshotRequested = false;
 static bool sensorDiagRequested = false;
 
@@ -35,9 +25,7 @@ static void onMaintenanceCommand(const char *cmd, JsonDocument &doc) {
     }
 }
 
-// ============================================
-// Sensor Diagnostic (§3.2)
-// ============================================
+// Sensor Diagnostic
 
 static void runSensorDiagnostic() {
     Serial.println("[MAINT] Running sensor diagnostic (30 samples)...");
@@ -46,7 +34,7 @@ static void runSensorDiagnostic() {
     Ultrasonic::init();
     MeasurementResult result = Ultrasonic::measure(DIAGNOSTIC_SAMPLE_COUNT, false);
 
-    // Determine sensor status (§3.2)
+    // Determine sensor status
     const char *sensorStatus = "OK";
     if (!result.valid || result.median <= 0 || result.median > SENSOR_MAX_CM) {
         sensorStatus = "FAULT";
@@ -54,7 +42,7 @@ static void runSensorDiagnostic() {
         sensorStatus = "UNSTABLE";
     }
 
-    // Publish diagnostic (§3.2)
+    // Publish diagnostic
     MQTTHandler::publishDiagnostic(
         result.totalCount,
         result.median,
@@ -69,9 +57,7 @@ static void runSensorDiagnostic() {
                   result.minVal, result.maxVal);
 }
 
-// ============================================
-// On-Demand Snapshot (§3.3)
-// ============================================
+// On-Demand Snapshot
 
 static void takeSnapshot() {
     Serial.println("[MAINT] Taking on-demand snapshot...");
@@ -93,9 +79,7 @@ static void takeSnapshot() {
     }
 }
 
-// ============================================
 // Main Maintenance Loop
-// ============================================
 
 void MaintenanceMode::run() {
     Serial.println("\n╔══════════════════════════════════════╗");
@@ -126,7 +110,7 @@ void MaintenanceMode::run() {
     // Run initial sensor diagnostic automatically
     runSensorDiagnostic();
 
-    // Wait for commands — 3 minute timeout (§3.1)
+    // Wait for commands — 3 minute timeout
     unsigned long startTime = millis();
     Serial.println("[MAINT] Listening for commands (3 min timeout)...");
 

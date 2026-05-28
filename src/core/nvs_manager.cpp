@@ -4,21 +4,7 @@
 #include <nvs.h>
 #include <Arduino.h>
 
-/**
- * @file nvs_manager.cpp
- * @brief NVS storage implementation with CRC32 write-verify (§11.2).
- *
- * Write pattern:
- *  1. Compute CRC32 of data
- *  2. Write to staging namespace
- *  3. Read back and verify CRC32
- *  4. If match → copy to active namespace
- *  5. If mismatch → discard staging, keep old data
- */
-
-// ============================================
 // Internal Helpers
-// ============================================
 
 static uint32_t crc32Table[256];
 static bool crc32Initialized = false;
@@ -146,9 +132,7 @@ static bool readVerified(const char *ns, const char *key, void *data, size_t len
     return true;
 }
 
-// ============================================
 // Public API
-// ============================================
 
 bool NVSManager::init() {
     esp_err_t err = nvs_flash_init();
@@ -235,7 +219,7 @@ bool NVSManager::saveDeviceConfig(const DeviceConfig &cfg) {
     return writeVerified(NVS_NS_DEVICE, "device", &cfg, sizeof(cfg));
 }
 
-// --- Baseline Average (§11.9) ---
+// --- Baseline Average ---
 bool NVSManager::loadBaselineAvg(float &avg) {
     nvs_handle_t handle;
     if (nvs_open(NVS_NS_SENSOR, NVS_READONLY, &handle) != ESP_OK) return false;

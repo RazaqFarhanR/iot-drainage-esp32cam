@@ -2,11 +2,6 @@
 
 #include <cstdint>
 
-/**
- * @file ntp_sync.h
- * @brief NTP time synchronization with RTC memory fallback (§11.8).
- */
-
 namespace NTPSync {
     /**
      * Synchronize time from NTP server (5s timeout).
@@ -28,7 +23,7 @@ namespace NTPSync {
     bool isSynced();
 
     /**
-     * Check if daily snapshot is due (§3.4).
+     * Check if daily snapshot is due.
      * @param hour Target hour (0-23)
      * @param minute Target minute (0-59)
      * @return true if current time matches ±30 min window

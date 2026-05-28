@@ -3,11 +3,6 @@
 #include <WiFi.h>
 #include <Arduino.h>
 
-/**
- * @file device_id.cpp
- * @brief Auto-generate unique device ID from ESP32 MAC address (§11.10).
- */
-
 static char cachedDeviceId[16] = {0};
 static char cachedLocation[64] = {0};
 
