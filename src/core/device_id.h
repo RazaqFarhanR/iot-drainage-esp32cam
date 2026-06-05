@@ -12,9 +12,4 @@ namespace DeviceID {
      * @return e.g. "IFMS-A1B2C3"
      */
     const char* get();
-
-    /**
-     * Get the device location string.
-     */
-    const char* getLocation();
 }

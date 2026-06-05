@@ -44,11 +44,16 @@ struct AuthConfig {
     bool     valid;
 };
 
+// Camera configuration
+struct CameraConfig {
+    uint8_t  flash_mode; // 0=OFF, 1=ON, 2=AUTO
+    bool     valid;
+};
+
 // Device configuration
 struct DeviceConfig {
     char     device_id[16];  // "IFMS-XXYYZZ"
     char     device_secret[65];
-    char     location[64];
     bool     valid;
 };
 
@@ -91,9 +96,9 @@ namespace NVSManager {
     bool loadDeviceConfig(DeviceConfig &cfg);
     bool saveDeviceConfig(const DeviceConfig &cfg);
 
-    // --- Baseline Drift ---
-    bool loadBaselineAvg(float &avg);
-    bool saveBaselineAvg(float avg);
+    // --- Camera Config ---
+    bool loadCameraConfig(CameraConfig &cfg);
+    bool saveCameraConfig(const CameraConfig &cfg);
 
     /**
      * Factory reset — erase all NVS namespaces.

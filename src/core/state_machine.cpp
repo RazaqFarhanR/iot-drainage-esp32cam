@@ -19,6 +19,7 @@ void StateMachine::validateRTCData() {
         memset(&rtcData, 0, sizeof(rtcData));
         rtcData.magic = 0x1F452026;
         rtcData.hasLastDistance = false;
+        rtcData.baselineAvg = 0.0f;
         rtcData.offlineRetryCount = 0;
         rtcData.wifiFailCount = 0;
         rtcData.faultCounter = 0;
@@ -32,6 +33,8 @@ void StateMachine::validateRTCData() {
         rtcData.maintenanceRequested = false;
         rtcData.lastUploadFailed = false;
         rtcData.resetCount = 0;
+        memset(rtcData.pendingLog, 0, sizeof(rtcData.pendingLog));
+        memset(rtcData.pendingLogLevel, 0, sizeof(rtcData.pendingLogLevel));
     }
 }
 
@@ -68,6 +71,13 @@ bool StateMachine::checkFactoryReset() {
 
 void StateMachine::init() {
     validateRTCData();
+
+    // Check reset reason
+    esp_reset_reason_t reason = esp_reset_reason();
+    if (reason == ESP_RST_TASK_WDT || reason == ESP_RST_WDT || reason == ESP_RST_INT_WDT) {
+        strncpy(rtcData.pendingLog, "Watchdog reset detected (System Hang)", sizeof(rtcData.pendingLog) - 1);
+        strncpy(rtcData.pendingLogLevel, "ERROR", sizeof(rtcData.pendingLogLevel) - 1);
+    }
 
     // Check wake cause
     esp_sleep_wakeup_cause_t wakeup = esp_sleep_get_wakeup_cause();
@@ -142,11 +152,15 @@ void StateMachine::enterDeepSleep(uint64_t sleepSeconds) {
         esp_sleep_enable_ext0_wakeup(PIN_RAIN_SENSOR, 0);  // Wake on LOW
     } else {
         Serial.println("[SM] EXT0 cooldown active — rain wake disabled");
+        rtcData.ext0WakeCount = 0; // Reset for the next timer cycle
     }
 
     // Isolate floating pins
-    rtc_gpio_isolate(GPIO_NUM_12);
-    rtc_gpio_isolate(GPIO_NUM_13);
+    rtc_gpio_isolate((gpio_num_t)PIN_ULTRASONIC_TRIG);
+    rtc_gpio_isolate((gpio_num_t)PIN_ULTRASONIC_ECHO);
+
+    // Secure rain sensor pin
+    rtc_gpio_pullup_en((gpio_num_t)PIN_RAIN_SENSOR);
 
     Serial.flush();
     esp_deep_sleep_start();

@@ -14,6 +14,7 @@ struct RTCData {
     // Smoothing state
     float    lastDistance;
     bool     hasLastDistance;
+    float    baselineAvg;
 
     // Offline retry counter
     uint16_t offlineRetryCount;
@@ -55,6 +56,10 @@ struct RTCData {
     // Double reset detection
     uint32_t lastResetTime;
     uint8_t  resetCount;
+
+    // Pending log to flush via MQTT
+    char     pendingLog[128];
+    char     pendingLogLevel[16];
 
     // Validation marker
     uint32_t magic;
