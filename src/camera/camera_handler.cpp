@@ -2,6 +2,9 @@
 #include "../config/pins.h"
 #include "../config/defaults.h"
 #include "../core/watchdog.h"
+#include "../core/nvs_manager.h"
+#include "../connectivity/mqtt_handler.h"
+#include "soc/rtc_cntl_reg.h"
 #include <Arduino.h>
 
 static bool cameraReady = false;
@@ -64,6 +67,7 @@ bool Camera::init() {
     esp_err_t err = esp_camera_init(&config);
     if (err != ESP_OK) {
         Serial.printf("[Camera] Init failed: 0x%x\n", err);
+        MQTTHandler::publishLog("ERROR", "Kamera gagal diinisialisasi. Cek koneksi hardware");
         return false;
     }
 
@@ -104,6 +108,32 @@ camera_fb_t* Camera::captureBestPhoto() {
         delay(50);
     }
 
+    CameraConfig camCfg;
+    if (!NVSManager::loadCameraConfig(camCfg) || !camCfg.valid) {
+        camCfg.flash_mode = 2; // Default AUTO
+    }
+
+    if (camCfg.flash_mode == 0) {
+        // Flash OFF
+        pinMode(PIN_FLASH_LED, OUTPUT);
+        digitalWrite(PIN_FLASH_LED, LOW);
+        delay(100);
+        Serial.println("[Camera] Using flash OFF (Forced)");
+        return esp_camera_fb_get();
+    } else if (camCfg.flash_mode == 1) {
+        // Flash ON
+        pinMode(PIN_FLASH_LED, OUTPUT);
+        WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // Disable Brownout
+        digitalWrite(PIN_FLASH_LED, HIGH);
+        delay(200);
+        camera_fb_t *fb = esp_camera_fb_get();
+        digitalWrite(PIN_FLASH_LED, LOW);
+        WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 1); // Enable Brownout
+        Serial.println("[Camera] Using flash ON (Forced)");
+        return fb;
+    }
+
+    // AUTO Mode (default logic)
     // Step 2: Capture with flash OFF
     pinMode(PIN_FLASH_LED, OUTPUT);
     digitalWrite(PIN_FLASH_LED, LOW);
@@ -114,11 +144,13 @@ camera_fb_t* Camera::captureBestPhoto() {
     Watchdog::feed();
 
     // Step 3: Capture with flash ON
+    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // Disable Brownout
     digitalWrite(PIN_FLASH_LED, HIGH);
     delay(200);  // Let exposure adjust
     camera_fb_t *frameOn = esp_camera_fb_get();
     float brightnessOn = calculateBrightness(frameOn);
     digitalWrite(PIN_FLASH_LED, LOW);
+    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 1); // Enable Brownout
 
     Watchdog::feed();
 
@@ -129,12 +161,12 @@ camera_fb_t* Camera::captureBestPhoto() {
     if (brightnessOn > brightnessOff) {
         // Flash ON is better (dark conditions)
         if (frameOff) esp_camera_fb_return(frameOff);
-        Serial.println("[Camera] Using flash ON frame");
+        Serial.println("[Camera] Using flash ON frame (AUTO)");
         return frameOn;
     } else {
         // Flash OFF is better (daytime)
         if (frameOn) esp_camera_fb_return(frameOn);
-        Serial.println("[Camera] Using flash OFF frame");
+        Serial.println("[Camera] Using flash OFF frame (AUTO)");
         return frameOff;
     }
 }
