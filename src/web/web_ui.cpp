@@ -335,9 +335,8 @@ static void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
     } else if (type == WS_EVT_DATA) {
         AwsFrameInfo *info = (AwsFrameInfo *)arg;
         if (info->opcode == WS_TEXT) {
-            data[len] = 0;  // Null terminate
             JsonDocument doc;
-            if (deserializeJson(doc, (char *)data)) return;
+            if (deserializeJson(doc, data, len)) return;
 
             const char *cmd = doc["cmd"] | "";
             if (strcmp(cmd, "request_preview") == 0) {
