@@ -184,7 +184,7 @@ Perangkat akan bangun dari Deep Sleep, terhubung ke WiFi sebagai STA, dan menung
 Perangkat mengambil **30 sampel** (2× lebih banyak dari operasional normal) dan melaporkan:
 
 ```json
-// Publish ke: ifms/{device_id}/diagnostic
+// Publish ke: device/{device_id}/diagnostic
 {
   "type": "sensor_diagnostic",
   "sample_count": 30,
@@ -292,19 +292,16 @@ Nilai $Height_{sensor}$ dan $Offset$ disimpan di NVS namespace `"sensor_cfg"`.
 
 Threshold dapat diperbarui dari Android oleh pengguna **Admin** tanpa *flash* ulang firmware.
 
-**Fetch on Wake** — HTTP GET setiap siklus bangun:
-```
-GET http://<backend-host>/api/devices/{device_id}/config
-```
-Response JSON:
+**Sinkronisasi via MQTT Command** — Menggunakan topik command:
 ```json
 {
-  "threshold_normal_cm": 40,
-  "threshold_bahaya_cm": 80,
-  "height_sensor_cm": 150,
-  "offset_cm": 0
+  "cmd": "set_thresholds",
+  "normal_max_cm": 40.0,
+  "waspada_max_cm": 80.0,
+  "baseline_height_cm": 150.0
 }
 ```
+*Catatan: Pengambilan konfigurasi (Fetch on Wake) via HTTP GET dinonaktifkan dalam implementasi saat ini, karena backend menangani sinkronisasi threshold melalui perintah MQTT secara langsung.*
 
 **NVS Storage**: Disimpan di namespace `"threshold_cfg"`. Jika backend tidak dapat dihubungi, gunakan nilai NVS terakhir. Jika NVS juga kosong, gunakan nilai default:
 
@@ -332,10 +329,11 @@ Response JSON:
 
 | Komponen | Pin ESP32-CAM | Deskripsi Implementasi |
 | :--- | :--- | :--- |
-| **AJ-SR04M Trig** | GPIO 12 | Output pulsa 10 $\mu$s. ⚠️ *Strapping pin* — pastikan `LOW` saat boot. |
+| **AJ-SR04M Trig** | GPIO 14 | Output pulsa 10 $\mu$s. (Aman, bukan strapping pin) |
 | **AJ-SR04M Echo** | GPIO 13 | Input pantulan. Pasang resistor *pull-down* 10 k$\Omega$. |
 | **Rain Sensor DO** | GPIO 15 | Wake-up EXT0 (aktif LOW). ⚠️ *Strapping pin* — tidak boleh HIGH saat boot. |
 | **Status LED** | GPIO 33 | LED Merah on-board. Pola kedip sesuai status operasi. |
+| **External LED** | GPIO 12 | Status LED tambahan. ⚠️ *Strapping pin* — pastikan state LOW atau pull-down agar tidak memicu 1.8V boot select saat dinyalakan. |
 | **Flash Camera** | GPIO 4 | Aktifkan hanya saat snapshot BAHAYA di kondisi gelap. |
 
 ### 7.2 Pin Kamera (OV2640 AI-Thinker)
@@ -353,7 +351,7 @@ Response JSON:
 | PCLK | GPIO 22 |
 
 > [!WARNING]
-> **GPIO 12 & GPIO 15** adalah *strapping pins*. Jika ditarik HIGH saat boot, ESP32 akan gagal start. Selalu pasang *pull-down* 10 k$\Omega$ atau pastikan perangkat eksternal tidak aktif saat power ON.
+> **GPIO 12 & GPIO 15** adalah *strapping pins*. GPIO 12 mengatur voltase internal flash LDO (1.8V vs 3.3V). Untuk menjaga kesehatan boot alat, sensor ultrasonik dipindah ke **GPIO 14** yang aman, dan GPIO 12 digunakan untuk LED eksternal (output saja, aman saat boot). Selalu pasang *pull-down* atau pastikan perangkat eksternal tidak aktif saat power ON.
 
 ---
 
@@ -389,42 +387,48 @@ ws://<backend-host>/ws/devices/{device_id}
 | **Broker** | `broker.emqx.io` (dev) / self-hosted (production) |
 | **Port** | 1883 |
 | **QoS** | 1 (At Least Once) |
-| **Topic Publish Telemetri** | `ifms/{device_id}/telemetry` |
-| **Topic Publish Diagnostik** | `ifms/{device_id}/diagnostic` |
-| **Topic Subscribe Perintah** | `ifms/{device_id}/cmd` |
+| **Topic Publish Telemetri** | `compro9.26.telyu-iot-drainage-be/sensor-data` |
+| **Topic Publish Diagnostik** | `device/{device_id}/diagnostic` |
+| **Topic Subscribe Perintah** | `device/{device_id}/cmd` |
+| **Topic Publish Response** | `device/{device_id}/res` |
+| **Topic Publish Log** | `device/{device_id}/log` |
 
 Contoh payload MQTT telemetri:
 ```json
 {
   "device_id": "ESP32-CAM-001",
-  "location": "Drainage-Channel-A",
   "water_level_cm": 34.5,
-  "raw_distance_cm": 115.5,
+  "water_distance": 115.5,
+  "rain_detected": false,
   "status": "NORMAL",
   "sensor_flag": "OK",
-  "rain_detected": false,
   "rssi_dbm": -62,
+  "time_synced": true,
   "timestamp": 1715612400
 }
 ```
 
-Daftar perintah MQTT yang didukung (`ifms/{device_id}/cmd`):
+Daftar perintah MQTT yang didukung (`device/{device_id}/cmd`):
 
 | Perintah | Aksi |
 | :--- | :--- |
 | `{"cmd":"enter_maintenance"}` | Masuk Mode Maintenance |
-| `{"cmd":"snapshot"}` | Ambil foto on-demand |
-| `{"cmd":"diagnostic","type":"sensor"}` | Jalankan diagnostik sensor |
-| `{"cmd":"reboot_setup"}` | Reboot ke Commissioning Mode |
+| `{"cmd":"snapshot"}` | Jadwalkan ambil foto on-demand |
+| `{"cmd":"diagnostic"}` | Jadwalkan diagnostik sensor |
+| `{"cmd":"reboot_setup"}` | Factory reset dan Reboot ke Commissioning Mode |
+| `{"cmd":"update_wifi", "ssid":"...", "pass":"..."}` | Memperbarui WiFi dan reboot |
+| `{"cmd":"set_thresholds", "normal_max_cm":40, ...}` | Memperbarui threshold batas air |
+| `{"cmd":"force_snapshot"}` | Paksa ambil foto dan upload langsung |
+| `{"cmd":"set_flash_mode", "mode":"AUTO"}` | Mengatur mode flash (OFF, ON, AUTO) |
 
 ### 9.2 HTTP REST — Upload & Konfigurasi
 
 | Method | Endpoint | Fungsi |
 | :--- | :--- | :--- |
-| `GET` | `/api/devices/{id}/config` | Ambil konfigurasi threshold |
-| `PUT` | `/api/devices/{id}/config` | Update threshold (dari Android) |
 | `POST` | `/api/upload-image` | Upload foto BAHAYA (multipart) |
 | `POST` | `/api/devices/{id}/snapshot` | Upload foto diagnostik/harian |
+
+*(Catatan: Endpoint `/config` dengan method GET/PUT ditujukan untuk komunikasi antara Backend dan Android, bukan langsung ke ESP32 karena ESP32 menggunakan MQTT)*
 
 **Error Handling HTTP POST**: Jika gagal (timeout / server error), ESP32 tidak menyimpan foto secara lokal (tanpa SD Card). Status kegagalan dicatat di RTC Memory dan dilaporkan pada siklus MQTT berikutnya via field `"last_upload_failed": true`.
 

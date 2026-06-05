@@ -12,7 +12,7 @@ Sistem **IoTDrainage / IFMS (Intelligent Flood Monitoring System)** menggunakan 
 
 **Topologi & Perangkat Keras:**
 - **Mikrokontroler**: ESP32-CAM AI-Thinker
-- **Sensor Jarak/Air**: Ultrasonic AJ-SR04M (Pin Trig: 12, Pin Echo: 13)
+- **Sensor Jarak/Air**: Ultrasonic AJ-SR04M (Pin Trig: 14, Pin Echo: 13)
 - **Sensor Hujan**: Rain Sensor Module (Pin DO: GPIO 15, Active LOW, mengaktifkan deep sleep wake-up EXT0)
 - **Kamera**: OV2640 dengan Flash LED (Pin 4)
 - **LED Indikator**: On-board Red LED (Pin 33)
@@ -149,26 +149,159 @@ Kamera mem-bypass MQTT untuk upload gambar _snapshot_ atau _bahaya_.
 
 ## Bab 4: SPESIFIKASI PERINTAH DOWNLINK & ACKNOWLEDGMENT
 
-Perangkat mendengarkan _Command Topic_ saat sedang bangun. MQTT bersifat asinkron, balasan/ACK dari command dieksekusi di siklus _Operational_ selanjutnya (atau _Maintenance Mode_).
+Perangkat mendengarkan _Command Topic_ secara asinkron selama 3 detik setelah berhasil mengirimkan data telemetri utama. Perintah dikelola menggunakan pola _Request-Response_ yang mengandalkan `msg_id` (Correlation ID).
 
-- **Topic Downlink**: `ifms/<device_id>/cmd`
+- **Topic Downlink (Request)**: `device/<device_id>/cmd`
+- **Topic Uplink (Response)**: `device/<device_id>/res`
 - **Autentikasi (Token)**: Wajib disertakan `token` berupa _HMAC-SHA256_ dari (Device Secret + Timestamp), dan nilai `ts` (Unix Timestamp). *(Catatan: dilewati/bypass jika secret kosong dalam dev-mode)*.
 
-**Daftar Command yang Didukung:**
+### Daftar Command yang Didukung & Parameter Request
 
-1. **`enter_maintenance`** -> Memaksa sistem masuk ke _Maintenance Mode_ pada siklus berikutnya (misalnya untuk update OTA atau kalibrasi Web UI).
-2. **`reboot_setup`** -> Melakukan `Factory Reset` di NVS dan *reboot* ulang kembali ke status awal perakitan (_Commissioning Mode_).
-3. **`snapshot`** / **`diagnostic`** -> Memaksa perangkat pindah ke maintenance untuk menangkap gambar atau memberikan diagnostik khusus.
+1. **`update_wifi`**: Mengubah kredensial WiFi dan me-reboot perangkat.
+   - Parameter: `"ssid"` (String), `"pass"` (String).
+2. **`set_thresholds`**: Mengubah batas ambang dan tinggi sensor (*baseline*).
+   - Parameter: `"normal_max_cm"` (Float), `"waspada_max_cm"` (Float), `"baseline_height_cm"` (Float).
+3. **`force_snapshot`**: Memaksa perangkat mengambil dan mengunggah gambar saat itu juga.
+   - Parameter: -
+4. **`set_flash_mode`**: Mengatur perilaku lampu Flash (Pin 4) kamera.
+   - Parameter: `"mode"` (String: `"ON"`, `"OFF"`, atau `"AUTO"`).
+5. **`enter_maintenance`**: Memaksa sistem masuk ke _Maintenance Mode_.
+   - Parameter: -
+6. **`reboot_setup`**: Melakukan `Factory Reset` di NVS dan *reboot* kembali ke _Commissioning Mode_.
+   - Parameter: -
 
-**Contoh Payload JSON (Downlink Command):**
+### Struktur Payload JSON Request & Response Tiap Command
+
+Berikut adalah contoh lengkap `payload` Request yang dikirim ke `device/<device_id>/cmd` dan Response yang dibalas ke `device/<device_id>/res`.
+*(Catatan: Semua Request wajib menyertakan `"token"` dan `"ts"`, atribut ini dihilangkan pada contoh di bawah demi keringkasan).*
+
+#### 1. `update_wifi`
+**Request:**
+```json
+{
+  "cmd": "update_wifi",
+  "msg_id": "req-wifi-01",
+  "ssid": "Drainage_WiFi",
+  "pass": "supersecret123"
+}
+```
+**Response:**
+```json
+{
+  "cmd": "update_wifi",
+  "msg_id": "req-wifi-01",
+  "status": "SUCCESS",
+  "code": 200,
+  "message": "WiFi updated, rebooting",
+  "timestamp": 1716892355
+}
+```
+
+#### 2. `set_thresholds`
+**Request:**
+```json
+{
+  "cmd": "set_thresholds",
+  "msg_id": "req-thresh-01",
+  "normal_max_cm": 40.0,
+  "waspada_max_cm": 80.0,
+  "baseline_height_cm": 150.0
+}
+```
+**Response:**
+```json
+{
+  "cmd": "set_thresholds",
+  "msg_id": "req-thresh-01",
+  "status": "SUCCESS",
+  "code": 200,
+  "message": "Thresholds updated",
+  "timestamp": 1716892355
+}
+```
+
+#### 3. `force_snapshot`
+**Request:**
+```json
+{
+  "cmd": "force_snapshot",
+  "msg_id": "req-snap-01"
+}
+```
+**Response (Success):**
+```json
+{
+  "cmd": "force_snapshot",
+  "msg_id": "req-snap-01",
+  "status": "SUCCESS",
+  "code": 200,
+  "message": "Snapshot uploaded",
+  "timestamp": 1716892355
+}
+```
+
+#### 4. `set_flash_mode`
+**Request:**
+```json
+{
+  "cmd": "set_flash_mode",
+  "msg_id": "req-flash-01",
+  "mode": "ON"
+}
+```
+**Response:**
+```json
+{
+  "cmd": "set_flash_mode",
+  "msg_id": "req-flash-01",
+  "status": "SUCCESS",
+  "code": 200,
+  "message": "Flash mode set to ON",
+  "timestamp": 1716892355
+}
+```
+
+#### 5. `enter_maintenance`
+**Request:**
 ```json
 {
   "cmd": "enter_maintenance",
-  "token": "a1b2c3d4e5f6...",
-  "ts": 1716892350
+  "msg_id": "req-maint-01"
 }
 ```
-*(Saat ini ACK/Acknowledge tidak langsung dipublish di topic khusus, namun tercermin pada state cycle berikutnya di payload UPLINK atau perubahan sistem secara fisik).*
+**Response:**
+```json
+{
+  "cmd": "enter_maintenance",
+  "msg_id": "req-maint-01",
+  "status": "SUCCESS",
+  "code": 200,
+  "message": "Entering maintenance mode",
+  "timestamp": 1716892355
+}
+```
+
+#### 6. `reboot_setup`
+**Request:**
+```json
+{
+  "cmd": "reboot_setup",
+  "msg_id": "req-reboot-01"
+}
+```
+**Response:**
+```json
+{
+  "cmd": "reboot_setup",
+  "msg_id": "req-reboot-01",
+  "status": "SUCCESS",
+  "code": 200,
+  "message": "Factory reset and rebooting",
+  "timestamp": 1716892355
+}
+```
+
+*(Nilai `status` bisa berupa "SUCCESS" atau "FAILED" dengan `code` seperti 200, 400, atau 500).*
 
 ---
 
