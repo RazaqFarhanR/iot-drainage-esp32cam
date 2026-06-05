@@ -38,6 +38,11 @@ SelfCheckResult SelfCheck::check(const MeasurementResult &result) {
             out.shouldSkipData = true;
             out.forceBahaya = true;
             out.overrideSleepSec = SLEEP_FAULT_SEC;
+            
+            if (rtc.pendingLog[0] == '\0') {
+                strncpy(rtc.pendingLog, "Sensor malfungsi > 10 siklus. Menjeda operasional selama 60 menit.", sizeof(rtc.pendingLog) - 1);
+                strncpy(rtc.pendingLogLevel, "ERROR", sizeof(rtc.pendingLogLevel) - 1);
+            }
         } else if (rtc.faultCounter > FAULT_ESCALATION_BAHAYA) {
             // >3x → force BAHAYA, assume submerged
             out.flag = SensorFlag::SENSOR_SUBMERGED;
@@ -104,35 +109,6 @@ SelfCheckResult SelfCheck::check(const MeasurementResult &result) {
     }
     if (rtc.stuckCounter < 255) rtc.stuckCounter++;
 
-    // --- Check 5: SENSOR_DISPLACED (baseline drift) ---
-    float baseline = 0;
-    if (NVSManager::loadBaselineAvg(baseline) && baseline > 0) {
-        float drift = fabsf(result.waterLevel - baseline);
-        if (drift > BASELINE_DRIFT_CM) {
-            rtc.driftCounter++;
-            if (rtc.driftCounter >= BASELINE_DRIFT_CYCLES && !out.forceBahaya) {
-                out.flag = SensorFlag::SENSOR_DISPLACED;
-                out.flagStr = flagToString(out.flag);
-                Serial.printf("[SelfCheck] DISPLACED — drift=%.1f cm, %d cycles\n",
-                              drift, rtc.driftCounter);
-                return out;
-            }
-        } else {
-            rtc.driftCounter = 0;
-        }
-    }
-
     out.flagStr = flagToString(out.flag);
     return out;
-}
-
-void SelfCheck::updateBaseline(float waterLevel) {
-    float current = 0;
-    if (NVSManager::loadBaselineAvg(current)) {
-        // Running average (simple exponential)
-        float updated = (0.99f * current) + (0.01f * waterLevel);
-        NVSManager::saveBaselineAvg(updated);
-    } else {
-        NVSManager::saveBaselineAvg(waterLevel);
-    }
 }

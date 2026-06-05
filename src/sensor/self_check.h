@@ -33,13 +33,6 @@ namespace SelfCheck {
     SelfCheckResult check(const MeasurementResult &result);
 
     /**
-     * Update baseline average.
-     * Called after each valid measurement.
-     * @param waterLevel Current water level
-     */
-    void updateBaseline(float waterLevel);
-
-    /**
      * Get sensor flag as string.
      */
     const char* flagToString(SensorFlag flag);
