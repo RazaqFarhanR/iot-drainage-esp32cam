@@ -38,6 +38,16 @@ namespace MQTTHandler {
                            const char *sensorStatus);
 
     /**
+     * Publish response to a command.
+     */
+    bool publishResponse(const char *cmd, const char *msg_id, const char *status, int code, const char *message);
+
+    /**
+     * Publish system log event.
+     */
+    bool publishLog(const char *level, const char *message);
+
+    /**
      * Set callback for incoming commands.
      */
     void setCommandCallback(MQTTCommandCallback callback);

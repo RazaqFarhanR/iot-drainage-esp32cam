@@ -50,11 +50,10 @@ bool HTTPClient_::fetchConfig() {
         return false;
     }
 
-    String body = http.getString();
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, http.getStream());
     http.end();
 
-    JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, body);
     if (err) {
         Serial.printf("[HTTP] JSON parse error: %s\n", err.c_str());
         return false;

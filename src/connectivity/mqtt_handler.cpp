@@ -16,24 +16,22 @@ static MQTTCommandCallback cmdCallback = nullptr;
 static char topicTelemetry[64];
 static char topicDiagnostic[64];
 static char topicCmd[64];
+static char topicRes[64];
+static char topicLog[64];
 
 // HMAC-SHA256 Token Verification
 
 static bool verifyToken(const char *token, uint32_t timestamp) {
-    if (!token || strlen(token) == 0) return false;
-
-    // Check timestamp freshness (±60s)
-    // For development, we accept all tokens
-    // In production, compute HMAC and compare
     DeviceConfig cfg;
-    if (!NVSManager::loadDeviceConfig(cfg) || !cfg.valid) {
-        // No device secret — accept in dev mode
-        Serial.println("[MQTT] WARNING: No device secret — skipping token verification");
+    bool hasSecret = NVSManager::loadDeviceConfig(cfg) && cfg.valid && strlen(cfg.device_secret) > 0;
+
+    if (!hasSecret) {
+        Serial.println("[MQTT] WARNING: No device secret — accepting in dev mode");
         return true;
     }
 
-    if (strlen(cfg.device_secret) == 0) {
-        return true;  // Dev mode — no secret configured
+    if (!token || strlen(token) == 0) {
+        return false;
     }
 
     // Verify HMAC-SHA256(device_secret, timestamp_string)
@@ -78,7 +76,7 @@ static void mqttCallback(char *topic, byte *payload, unsigned int length) {
     // Token verification
     const char *token = doc["token"] | "";
     uint32_t ts = doc["ts"] | 0;
-    if (strlen(token) > 0 && !verifyToken(token, ts)) {
+    if (!verifyToken(token, ts)) {
         Serial.println("[MQTT] Token verification FAILED — ignoring command");
         return;
     }
@@ -95,8 +93,10 @@ bool MQTTHandler::connect() {
     // Build topics
     const char *deviceId = DeviceID::get();
     snprintf(topicTelemetry, sizeof(topicTelemetry), "%s", MQTT_TOPIC_TELEMETRY);
-    snprintf(topicDiagnostic, sizeof(topicDiagnostic), "ifms/%s/diagnostic", deviceId);
-    snprintf(topicCmd, sizeof(topicCmd), "ifms/%s/cmd", deviceId);
+    snprintf(topicDiagnostic, sizeof(topicDiagnostic), "device/%s/diagnostic", deviceId);
+    snprintf(topicCmd, sizeof(topicCmd), "device/%s/cmd", deviceId);
+    snprintf(topicRes, sizeof(topicRes), "device/%s/res", deviceId);
+    snprintf(topicLog, sizeof(topicLog), "device/%s/log", deviceId);
 
     // Get broker config
     BackendConfig backend;
@@ -151,13 +151,11 @@ bool MQTTHandler::publishTelemetry(float waterLevel, float rawDistance,
 
     JsonDocument doc;
     doc["device_id"] = DeviceID::get();
-    doc["location"] = DeviceID::getLocation();
     doc["water_level_cm"] = waterLevel;
     doc["water_distance"] = rawDistance;
     doc["status"] = status;
     doc["sensor_flag"] = sensorFlag;
     doc["rain_detected"] = rainDetected;
-    doc["rain_intensity"] = rainDetected ? 1.0 : 0.0;
     doc["rssi_dbm"] = rssi;
     doc["time_synced"] = timeSynced;
     doc["timestamp"] = (uint32_t)time(nullptr);
@@ -194,6 +192,43 @@ bool MQTTHandler::publishDiagnostic(int sampleCount, float median,
 
     bool ok = mqttClient.publish(topicDiagnostic, buffer);
     Serial.printf("[MQTT] Diagnostic %s: %s\n", ok ? "sent" : "FAILED", sensorStatus);
+    return ok;
+}
+
+bool MQTTHandler::publishResponse(const char *cmd, const char *msg_id, const char *status, int code, const char *message) {
+    if (!mqttClient.connected()) return false;
+
+    JsonDocument doc;
+    doc["cmd"] = cmd;
+    doc["msg_id"] = msg_id;
+    doc["status"] = status;
+    doc["code"] = code;
+    doc["message"] = message;
+    doc["timestamp"] = (uint32_t)time(nullptr);
+
+    char buffer[256];
+    serializeJson(doc, buffer, sizeof(buffer));
+
+    bool ok = mqttClient.publish(topicRes, buffer);
+    Serial.printf("[MQTT] Response to %s: %s\n", cmd, ok ? "sent" : "FAILED");
+    return ok;
+}
+
+bool MQTTHandler::publishLog(const char *level, const char *message) {
+    if (!mqttClient.connected()) return false;
+
+    JsonDocument doc;
+    doc["device_id"] = DeviceID::get();
+    doc["level"] = level;
+    doc["message"] = message;
+    doc["timestamp"] = (uint32_t)time(nullptr);
+
+    char buffer[384];
+    serializeJson(doc, buffer, sizeof(buffer));
+
+    // Using QoS 0 for publish since PubSubClient doesn't easily support QoS 1
+    bool ok = mqttClient.publish(topicLog, buffer);
+    Serial.printf("[MQTT] Log [%s]: %s (%s)\n", level, message, ok ? "sent" : "FAILED");
     return ok;
 }
 
