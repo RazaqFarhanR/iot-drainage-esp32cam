@@ -28,6 +28,10 @@ void CommissioningMode::run() {
 
     // LED setup — fast blink indicates AP mode
     pinMode(PIN_STATUS_LED, OUTPUT);
+    digitalWrite(PIN_STATUS_LED, HIGH); // Force internal LED OFF (Active-Low)
+    
+    pinMode(PIN_EXT_LED, OUTPUT);
+    digitalWrite(PIN_EXT_LED, LOW); // External LED OFF initially
 
     unsigned long startTime = millis();
     unsigned long lastClientSeen = 0;
@@ -50,7 +54,7 @@ void CommissioningMode::run() {
         // --- LED Blink (200ms) ---
         if (now - lastLEDBlink >= AP_LED_BLINK_MS) {
             ledState = !ledState;
-            digitalWrite(PIN_STATUS_LED, ledState ? LOW : HIGH);  // Inverted on ESP32-CAM
+            digitalWrite(PIN_EXT_LED, ledState ? HIGH : LOW); // Active-High on External LED
             lastLEDBlink = now;
         }
 
@@ -109,7 +113,7 @@ void CommissioningMode::run() {
     }
 
     // Cleanup
-    digitalWrite(PIN_STATUS_LED, HIGH);  // OFF
+    digitalWrite(PIN_EXT_LED, LOW);  // OFF
     WebUI::stop();
     WiFiMgr::stopAP();
     Camera::deinit();

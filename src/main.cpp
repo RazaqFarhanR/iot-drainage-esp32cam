@@ -22,9 +22,10 @@ void setup() {
     Serial.println("╚══════════════════════════════════════════════╝");
     Serial.println();
 
-    // Release held pins from deep sleep
-    rtc_gpio_hold_dis((gpio_num_t)PIN_ULTRASONIC_TRIG);
-    rtc_gpio_hold_dis((gpio_num_t)PIN_ULTRASONIC_ECHO);
+    // De-isolate pins that were isolated during deep sleep
+    rtc_gpio_deinit((gpio_num_t)PIN_ULTRASONIC_TRIG);
+    rtc_gpio_deinit((gpio_num_t)PIN_ULTRASONIC_ECHO);
+    rtc_gpio_deinit((gpio_num_t)PIN_RAIN_SENSOR);
 
     // Initialize flash LED to OFF
     pinMode(PIN_FLASH_LED, OUTPUT);
