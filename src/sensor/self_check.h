@@ -36,4 +36,9 @@ namespace SelfCheck {
      * Get sensor flag as string.
      */
     const char* flagToString(SensorFlag flag);
+
+    /**
+     * Update baseline average.
+     */
+    void updateBaseline(float waterLevel);
 }

@@ -39,10 +39,7 @@ SelfCheckResult SelfCheck::check(const MeasurementResult &result) {
             out.forceBahaya = true;
             out.overrideSleepSec = SLEEP_FAULT_SEC;
             
-            if (rtc.pendingLog[0] == '\0') {
-                strncpy(rtc.pendingLog, "Sensor malfungsi > 10 siklus. Menjeda operasional selama 60 menit.", sizeof(rtc.pendingLog) - 1);
-                strncpy(rtc.pendingLogLevel, "ERROR", sizeof(rtc.pendingLogLevel) - 1);
-            }
+            StateMachine::bufferLog("ERROR", "Sensor malfungsi > 10 siklus. Menjeda operasional selama 60 menit.");
         } else if (rtc.faultCounter > FAULT_ESCALATION_BAHAYA) {
             // >3x → force BAHAYA, assume submerged
             out.flag = SensorFlag::SENSOR_SUBMERGED;
@@ -111,4 +108,13 @@ SelfCheckResult SelfCheck::check(const MeasurementResult &result) {
 
     out.flagStr = flagToString(out.flag);
     return out;
+}
+
+void SelfCheck::updateBaseline(float waterLevel) {
+    RTCData &rtc = StateMachine::getRTCData();
+    if (rtc.baselineAvg == 0.0f) {
+        rtc.baselineAvg = waterLevel;
+    } else {
+        rtc.baselineAvg = (0.95f * rtc.baselineAvg) + (0.05f * waterLevel);
+    }
 }
