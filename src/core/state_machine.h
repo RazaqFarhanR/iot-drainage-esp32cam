@@ -47,11 +47,13 @@ struct RTCData {
     // Daily snapshot tracking
     uint8_t  lastSnapshotDay;
 
-    // Mode request from MQTT
-    bool     maintenanceRequested;
+
 
     // Upload failure tracking
     bool     lastUploadFailed;
+
+    // Maintenance mode flag
+    bool     maintenanceRequested;
 
     // Double reset detection
     uint32_t lastResetTime;
@@ -65,7 +67,7 @@ struct RTCData {
     uint32_t magic;
 };
 
-#define RTC_DATA_MAGIC 0xIFMS2026
+#define RTC_DATA_MAGIC 0x107D2026
 
 namespace StateMachine {
 
@@ -100,6 +102,11 @@ namespace StateMachine {
      * Access RTC data (persists across deep sleep).
      */
     RTCData& getRTCData();
+
+    /**
+     * Buffer a log message with priority overwrite (ERROR > WARNING > INFO).
+     */
+    void bufferLog(const char* level, const char* message);
 
     /**
      * Validate and initialize RTC data if corrupt/first boot.

@@ -14,10 +14,10 @@ static SystemMode currentMode = SystemMode::COMMISSIONING;
 // RTC Data Management
 
 void StateMachine::validateRTCData() {
-    if (rtcData.magic != 0x1F452026) {
+    if (rtcData.magic != RTC_DATA_MAGIC) {
         Serial.println("[SM] RTC data invalid — initializing...");
         memset(&rtcData, 0, sizeof(rtcData));
-        rtcData.magic = 0x1F452026;
+        rtcData.magic = RTC_DATA_MAGIC;
         rtcData.hasLastDistance = false;
         rtcData.baselineAvg = 0.0f;
         rtcData.offlineRetryCount = 0;
@@ -30,8 +30,9 @@ void StateMachine::validateRTCData() {
         rtcData.ntpSynced = false;
         rtcData.driftCounter = 0;
         rtcData.lastSnapshotDay = 0;
-        rtcData.maintenanceRequested = false;
+
         rtcData.lastUploadFailed = false;
+        rtcData.maintenanceRequested = false;
         rtcData.resetCount = 0;
         memset(rtcData.pendingLog, 0, sizeof(rtcData.pendingLog));
         memset(rtcData.pendingLogLevel, 0, sizeof(rtcData.pendingLogLevel));
@@ -42,21 +43,42 @@ RTCData& StateMachine::getRTCData() {
     return rtcData;
 }
 
+// Priority values: ERROR(3) > WARNING(2) > INFO(1)
+static int getLogLevelPriority(const char* level) {
+    if (strcmp(level, "ERROR") == 0) return 3;
+    if (strcmp(level, "WARNING") == 0) return 2;
+    if (strcmp(level, "INFO") == 0) return 1;
+    return 0;
+}
+
+void StateMachine::bufferLog(const char* level, const char* message) {
+    if (rtcData.pendingLog[0] == '\0') {
+        // Buffer is empty, just write
+        strncpy(rtcData.pendingLogLevel, level, sizeof(rtcData.pendingLogLevel) - 1);
+        strncpy(rtcData.pendingLog, message, sizeof(rtcData.pendingLog) - 1);
+    } else {
+        // Buffer is not empty, check priority
+        int currentPrio = getLogLevelPriority(rtcData.pendingLogLevel);
+        int newPrio = getLogLevelPriority(level);
+        if (newPrio >= currentPrio) {
+            strncpy(rtcData.pendingLogLevel, level, sizeof(rtcData.pendingLogLevel) - 1);
+            strncpy(rtcData.pendingLog, message, sizeof(rtcData.pendingLog) - 1);
+            Serial.printf("[SM] Overwriting log with higher/equal priority: %s\n", level);
+        } else {
+            Serial.printf("[SM] Skipping log (%s), current buffer has higher priority (%s)\n", level, rtcData.pendingLogLevel);
+        }
+    }
+}
+
 // Boot Logic
 
 bool StateMachine::checkDoubleReset() {
-    uint32_t now = millis();
-    if (rtcData.resetCount > 0 &&
-        (now - rtcData.lastResetTime) < DOUBLE_RESET_WINDOW_MS) {
+    if (rtcData.resetCount > 0) {
         rtcData.resetCount = 0;
         Serial.println("[SM] *** Double Reset detected ***");
         return true;
     }
-    rtcData.lastResetTime = now;
     rtcData.resetCount = 1;
-
-    // Wait briefly for potential second press
-    delay(500);
     return false;
 }
 
@@ -75,20 +97,16 @@ void StateMachine::init() {
     // Check reset reason
     esp_reset_reason_t reason = esp_reset_reason();
     if (reason == ESP_RST_TASK_WDT || reason == ESP_RST_WDT || reason == ESP_RST_INT_WDT) {
-        strncpy(rtcData.pendingLog, "Watchdog reset detected (System Hang)", sizeof(rtcData.pendingLog) - 1);
-        strncpy(rtcData.pendingLogLevel, "ERROR", sizeof(rtcData.pendingLogLevel) - 1);
+        bufferLog("ERROR", "Watchdog reset detected (System Hang)");
+    } else if (reason == ESP_RST_BROWNOUT) {
+        bufferLog("ERROR", "Perangkat ter-restart paksa karena tegangan drop (Brownout)");
+    } else if (reason == ESP_RST_POWERON) {
+        bufferLog("INFO", "Perangkat dihidupkan ulang secara fisik (Cold Boot)");
     }
 
-    // Check wake cause
     esp_sleep_wakeup_cause_t wakeup = esp_sleep_get_wakeup_cause();
 
-    // Check if maintenance was requested via MQTT (set in RTC before sleep)
-    if (rtcData.maintenanceRequested) {
-        rtcData.maintenanceRequested = false;
-        currentMode = SystemMode::MAINTENANCE;
-        Serial.println("[SM] Boot → MAINTENANCE (MQTT request)");
-        return;
-    }
+
 
     // Check for double reset → Commissioning
     if (wakeup == ESP_SLEEP_WAKEUP_UNDEFINED) {
@@ -139,6 +157,7 @@ uint64_t StateMachine::getOfflineBackoffSeconds() {
 
 void StateMachine::enterDeepSleep(uint64_t sleepSeconds) {
     Serial.printf("[SM] Entering deep sleep for %llu seconds...\n", sleepSeconds);
+    rtcData.resetCount = 0;
 
     // Release sensor pins
     rtc_gpio_hold_dis((gpio_num_t)PIN_ULTRASONIC_TRIG);

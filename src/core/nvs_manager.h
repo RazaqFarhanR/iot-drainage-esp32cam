@@ -52,8 +52,14 @@ struct CameraConfig {
 
 // Device configuration
 struct DeviceConfig {
-    char     device_id[16];  // "IFMS-XXYYZZ"
+    char     device_id[16];  // "IOT-XXYYZZ"
     char     device_secret[65];
+    bool     valid;
+};
+
+// Location configuration
+struct LocationConfig {
+    char     location[64];
     bool     valid;
 };
 
@@ -95,6 +101,10 @@ namespace NVSManager {
     // --- Device Config ---
     bool loadDeviceConfig(DeviceConfig &cfg);
     bool saveDeviceConfig(const DeviceConfig &cfg);
+
+    // --- Location Config ---
+    bool loadLocationConfig(LocationConfig &cfg);
+    bool saveLocationConfig(const LocationConfig &cfg);
 
     // --- Camera Config ---
     bool loadCameraConfig(CameraConfig &cfg);

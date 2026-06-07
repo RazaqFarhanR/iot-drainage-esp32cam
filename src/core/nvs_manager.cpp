@@ -139,9 +139,7 @@ bool NVSManager::init() {
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         Serial.println("[NVS] Erasing flash due to corruption...");
-        RTCData &rtc = StateMachine::getRTCData();
-        strncpy(rtc.pendingLog, "NVS Corrupt terdeteksi. Melakukan Format Ulang", sizeof(rtc.pendingLog) - 1);
-        strncpy(rtc.pendingLogLevel, "WARNING", sizeof(rtc.pendingLogLevel) - 1);
+        StateMachine::bufferLog("WARNING", "NVS Corrupt terdeteksi. Melakukan Format Ulang");
         nvs_flash_erase();
         err = nvs_flash_init();
     }
@@ -221,6 +219,16 @@ bool NVSManager::loadDeviceConfig(DeviceConfig &cfg) {
 
 bool NVSManager::saveDeviceConfig(const DeviceConfig &cfg) {
     return writeVerified(NVS_NS_DEVICE, "device", &cfg, sizeof(cfg));
+}
+
+// --- Location Config ---
+bool NVSManager::loadLocationConfig(LocationConfig &cfg) {
+    memset(&cfg, 0, sizeof(cfg));
+    return readVerified(NVS_NS_DEVICE, "location", &cfg, sizeof(cfg));
+}
+
+bool NVSManager::saveLocationConfig(const LocationConfig &cfg) {
+    return writeVerified(NVS_NS_DEVICE, "location", &cfg, sizeof(cfg));
 }
 
 // --- Camera Config ---

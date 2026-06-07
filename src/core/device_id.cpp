@@ -16,7 +16,7 @@ void DeviceID::init() {
     // Generate from MAC address
     uint8_t mac[6];
     WiFi.macAddress(mac);
-    snprintf(cachedDeviceId, sizeof(cachedDeviceId), "IFMS-%02X%02X%02X",
+    snprintf(cachedDeviceId, sizeof(cachedDeviceId), "IOT-%02X%02X%02X",
              mac[3], mac[4], mac[5]);
 
     // Save to NVS

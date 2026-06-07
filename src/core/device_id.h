@@ -9,7 +9,7 @@ namespace DeviceID {
 
     /**
      * Get the cached device ID string.
-     * @return e.g. "IFMS-A1B2C3"
+     * @return e.g. "IOT-A1B2C3"
      */
     const char* get();
 }

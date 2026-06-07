@@ -1,5 +1,6 @@
 #include "watchdog.h"
 #include "../config/defaults.h"
+#include "state_machine.h"
 #include <esp_task_wdt.h>
 #include <Arduino.h>
 
@@ -34,6 +35,9 @@ void Watchdog::setPhase(WDTPhase phase) {
 void Watchdog::feed() {
     if (wdtInitialized) {
         esp_task_wdt_reset();
+    }
+    if (millis() > DOUBLE_RESET_WINDOW_MS) {
+        StateMachine::getRTCData().resetCount = 0;
     }
 }
 
