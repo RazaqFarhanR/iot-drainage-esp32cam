@@ -18,30 +18,12 @@
 
 namespace OperationalMode {
 
-static void ledSuccess() {
-    pinMode(PIN_EXT_LED, OUTPUT);
-    digitalWrite(PIN_EXT_LED, HIGH); // Active-High: ON
-    delay(LED_SUCCESS_BLINK_MS);
-    digitalWrite(PIN_EXT_LED, LOW);  // Active-High: OFF
-}
-
-static void ledFail() {
-    pinMode(PIN_EXT_LED, OUTPUT);
-    for (int i = 0; i < LED_FAIL_BLINK_COUNT; i++) {
-        digitalWrite(PIN_EXT_LED, HIGH); // Active-High: ON
-        delay(LED_FAIL_BLINK_MS);
-        digitalWrite(PIN_EXT_LED, LOW);  // Active-High: OFF
-        delay(LED_FAIL_BLINK_MS);
-    }
-}
-
 
 
 bool connectNetwork() {
     Watchdog::setPhase(WDTPhase::WIFI);
     if (!WiFiMgr::connect()) {
         Serial.println("[OP] WiFi failed!");
-        ledFail();
         bool goOffline = WiFiMgr::handleConnectFailure();
         if (goOffline) {
             StateMachine::bufferLog("WARNING", "WiFi gagal terhubung, masuk ke Mode OFFLINE (Backoff)");
@@ -127,9 +109,6 @@ void transmitData(const MeasurementResult &meas, const SelfCheckResult &check, c
             Watchdog::feed();
             delay(100);
         }
-        ledSuccess();
-    } else {
-        ledFail();
     }
 }
 
@@ -237,6 +216,13 @@ void run() {
 
     if (!connectNetwork()) return;
 
+    // Send device info (IP) on cold boot
+    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED) {
+        if (MQTTHandler::connect()) {
+            MQTTHandler::publishDeviceInfo();
+        }
+    }
+
     NTPSync::sync();
     if (!NTPSync::isSynced() && MQTTHandler::isConnected()) {
         MQTTHandler::publishLog("WARNING", "Gagal sinkronisasi waktu NTP. Menggunakan estimasi RTC");
@@ -253,7 +239,7 @@ void run() {
     handleCameraUploads(status, checkResult.shouldSkipData);
 
     RTCData &rtc = StateMachine::getRTCData();
-    if (rtc.maintenanceRequested) {
+    if (checkResult.enterMaintenance || rtc.maintenanceRequested) {
         if (MQTTHandler::isConnected()) {
             MQTTHandler::publishLog("ERROR", "Sensor stuck/rusak berulang kali. Memasuki Mode Maintenance (Tidur 1 Jam)");
         }

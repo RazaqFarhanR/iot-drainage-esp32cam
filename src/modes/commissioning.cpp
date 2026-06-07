@@ -8,6 +8,7 @@
 #include "../sensor/rain_sensor.h"
 #include "../camera/camera_handler.h"
 #include "../connectivity/wifi_manager.h"
+#include "../connectivity/mqtt_handler.h"
 #include "../web/web_ui.h"
 #include <Arduino.h>
 
@@ -23,15 +24,32 @@ void CommissioningMode::run() {
     // Initialize subsystems
     Ultrasonic::init();
     RainSensor::init();
-    WiFiMgr::startAP();
-    WebUI::start();
+    
+    int blinkIntervalMs = AP_LED_BLINK_MS;
+
+    if (StateMachine::isLocalCommissioning()) {
+        Serial.println("[COMM] Local Commissioning mode - Attempting WiFi...");
+        if (WiFiMgr::connect()) {
+            Serial.println("[COMM] WiFi Connected. Starting Local UI.");
+            if (MQTTHandler::connect()) {
+                MQTTHandler::publishDeviceInfo();
+                MQTTHandler::disconnect(); // Disconnect after sending to save resources
+            }
+            WebUI::start();
+            blinkIntervalMs = 1000; // Slow blink for Local Commissioning
+        } else {
+            Serial.println("[COMM] WiFi Failed. Falling back to AP mode.");
+            WiFiMgr::startAP();
+            WebUI::start();
+        }
+    } else {
+        WiFiMgr::startAP();
+        WebUI::start();
+    }
 
     // LED setup — fast blink indicates AP mode
     pinMode(PIN_STATUS_LED, OUTPUT);
     digitalWrite(PIN_STATUS_LED, HIGH); // Force internal LED OFF (Active-Low)
-    
-    pinMode(PIN_EXT_LED, OUTPUT);
-    digitalWrite(PIN_EXT_LED, LOW); // External LED OFF initially
 
     unsigned long startTime = millis();
     unsigned long lastClientSeen = 0;
@@ -51,10 +69,10 @@ void CommissioningMode::run() {
         unsigned long now = millis();
         unsigned long elapsed = now - startTime;
 
-        // --- LED Blink (200ms) ---
-        if (now - lastLEDBlink >= AP_LED_BLINK_MS) {
+        // --- LED Blink ---
+        if (now - lastLEDBlink >= blinkIntervalMs) {
             ledState = !ledState;
-            digitalWrite(PIN_EXT_LED, ledState ? HIGH : LOW); // Active-High on External LED
+            digitalWrite(PIN_STATUS_LED, ledState ? LOW : HIGH); // Active-Low on Internal LED
             lastLEDBlink = now;
         }
 
@@ -113,7 +131,7 @@ void CommissioningMode::run() {
     }
 
     // Cleanup
-    digitalWrite(PIN_EXT_LED, LOW);  // OFF
+    digitalWrite(PIN_STATUS_LED, HIGH);  // OFF (Active-Low)
     WebUI::stop();
     WiFiMgr::stopAP();
     Camera::deinit();
