@@ -26,7 +26,7 @@ static const char HTML_LOGIN[] PROGMEM = R"rawliteral(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>IFMS - Login</title>
+<title>IoTDrainage - Login</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;
@@ -46,7 +46,7 @@ button:hover{background:#1d4ed8}
 </head>
 <body>
 <div class="card">
-<h1>🔐 IFMS Authentication</h1>
+<h1>🔐 IoTDrainage Authentication</h1>
 <p class="sub">Masukkan PIN 4 digit untuk akses</p>
 <div class="err" id="err">PIN salah! Sisa percobaan: <span id="rem">3</span></div>
 <form action="/auth" method="POST">
@@ -62,7 +62,7 @@ button:hover{background:#1d4ed8}
 static const char HTML_LOCKOUT[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>IFMS - Lockout</title>
+<title>IoTDrainage - Lockout</title>
 <style>
 body{font-family:'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;
 display:flex;justify-content:center;align-items:center;min-height:100vh}
@@ -83,7 +83,7 @@ static const char HTML_CONFIG[] PROGMEM = R"rawliteral(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>IFMS - Konfigurasi</title>
+<title>IoTDrainage - Konfigurasi</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;padding:16px}
@@ -122,8 +122,15 @@ font-weight:600}
 </head>
 <body>
 <div class="container">
-<h1>🔧 IFMS Konfigurasi</h1>
+<h1>🔧 IoTDrainage Konfigurasi</h1>
 <p class="sub" id="devId">Device: Loading...</p>
+
+<!-- Device Info -->
+<div class="card">
+<h2>📍 Informasi Device</h2>
+<label>Lokasi Pemasangan</label>
+<input type="text" id="location" placeholder="Contoh: Jl. Drainase No.1" maxlength="63">
+</div>
 
 <!-- Live Telemetry -->
 <div class="card">
@@ -277,7 +284,8 @@ document.getElementById('configForm').onsubmit=function(e){
     height_sensor:parseFloat(document.getElementById('heightSensor').value),
     offset:parseFloat(document.getElementById('offset').value),
     threshold_normal:parseInt(document.getElementById('thNormal').value),
-    threshold_bahaya:parseInt(document.getElementById('thBahaya').value)
+    threshold_bahaya:parseInt(document.getElementById('thBahaya').value),
+    location:document.getElementById('location').value
   };
   if(!cfg.ssid){alert('SSID wajib diisi!');return;}
   ws.send(JSON.stringify(cfg));
@@ -344,6 +352,14 @@ static void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
                 Serial.println("[WebUI] Camera preview requested");
             } else if (strcmp(cmd, "save_config") == 0) {
                 Serial.println("[WebUI] Saving configuration...");
+
+                // Save location config
+                LocationConfig lCfg;
+                memset(&lCfg, 0, sizeof(lCfg));
+                strncpy(lCfg.location, doc["location"] | "Unknown", sizeof(lCfg.location) - 1);
+                lCfg.location[sizeof(lCfg.location) - 1] = '\0';
+                lCfg.valid = true;
+                NVSManager::saveLocationConfig(lCfg);
 
                 // Save WiFi config
                 WiFiConfig wifi;
@@ -412,6 +428,11 @@ void WebUI::start() {
     server.on("/auth", HTTP_POST, [](AsyncWebServerRequest *req) {
         if (millis() < lockoutUntil) {
             req->send(200, "text/html", HTML_LOCKOUT);
+            return;
+        }
+
+        if (!req->hasParam("pin", true)) {
+            req->send(400, "text/plain", "Bad Request: Missing pin parameter");
             return;
         }
 
