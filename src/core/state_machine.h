@@ -88,10 +88,16 @@ namespace StateMachine {
     void requestMode(SystemMode mode);
 
     /**
-     * Check if factory reset was triggered (long press >10s).
-     * Must be called early in boot.
+     * Detect button clicks during boot window (2.5s).
+     * Returns the number of clicks detected.
      */
-    bool checkFactoryReset();
+    int detectBootClicks();
+
+    /**
+     * Local Commissioning state accessors.
+     */
+    bool isLocalCommissioning();
+    void setLocalCommissioning(bool state);
 
     /**
      * Check for double reset (2x press < 3s).

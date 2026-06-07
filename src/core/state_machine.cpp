@@ -10,6 +10,7 @@
 RTC_DATA_ATTR static RTCData rtcData;
 
 static SystemMode currentMode = SystemMode::COMMISSIONING;
+static bool localCommissioning = false;
 
 // RTC Data Management
 
@@ -82,13 +83,56 @@ bool StateMachine::checkDoubleReset() {
     return false;
 }
 
-bool StateMachine::checkFactoryReset() {
-    // Factory reset is triggered externally — we check if NVS
-    // has a flag set by a long-press handler or if user requests via Serial.
-    // For hardware detection, we rely on the boot count in RTC memory.
-    // Long press > 10s would be handled by a GPIO ISR in a real implementation.
-    // Here we expose it as API for the Commissioning mode web UI.
-    return false;
+int StateMachine::detectBootClicks() {
+    pinMode(PIN_FACTORY_RESET, INPUT_PULLUP);
+    pinMode(PIN_STATUS_LED, OUTPUT);
+    digitalWrite(PIN_STATUS_LED, HIGH); // Off (active low)
+
+    Serial.println("[SM] Monitoring button clicks for 2.5s...");
+    
+    int clicks = 0;
+    bool lastState = HIGH;
+    uint32_t startTime = millis();
+    uint32_t lastDebounceTime = 0;
+    const uint32_t debounceDelay = 150;
+
+    while (millis() - startTime < 2500) {
+        // Blink LED rapidly to indicate we are in the boot window
+        if ((millis() - startTime) % 200 < 100) {
+            digitalWrite(PIN_STATUS_LED, LOW);
+        } else {
+            digitalWrite(PIN_STATUS_LED, HIGH);
+        }
+
+        bool reading = digitalRead(PIN_FACTORY_RESET);
+        if (reading != lastState) {
+            lastDebounceTime = millis();
+        }
+
+        if ((millis() - lastDebounceTime) > debounceDelay) {
+            // If the button state changed (HIGH -> LOW means pressed)
+            if (reading == LOW && lastState == HIGH) {
+                clicks++;
+                Serial.printf("[SM] Click %d detected\n", clicks);
+                // Turn LED solid ON for a moment to acknowledge click
+                digitalWrite(PIN_STATUS_LED, LOW);
+                delay(100); 
+            }
+            lastState = reading;
+        }
+        delay(10);
+    }
+    
+    digitalWrite(PIN_STATUS_LED, HIGH); // Turn off LED after window
+    return clicks;
+}
+
+bool StateMachine::isLocalCommissioning() {
+    return localCommissioning;
+}
+
+void StateMachine::setLocalCommissioning(bool state) {
+    localCommissioning = state;
 }
 
 void StateMachine::init() {
@@ -106,11 +150,25 @@ void StateMachine::init() {
 
     esp_sleep_wakeup_cause_t wakeup = esp_sleep_get_wakeup_cause();
 
-
-
-    // Check for double reset → Commissioning
+    // Check for physical hardware button clicks FIRST (only on cold boot/reset, not deep sleep)
     if (wakeup == ESP_SLEEP_WAKEUP_UNDEFINED) {
-        // Fresh power-on or reset (not from deep sleep)
+        int clicks = detectBootClicks();
+        if (clicks == 1) {
+            Serial.println("[SM] 1 Click detected -> Local Commissioning");
+            setLocalCommissioning(true);
+            currentMode = SystemMode::COMMISSIONING;
+            return;
+        } else if (clicks >= 3) {
+            Serial.println("[SM] 3+ Clicks detected -> AP Commissioning & Factory Reset");
+            NVSManager::factoryReset();
+            setLocalCommissioning(false);
+            currentMode = SystemMode::COMMISSIONING;
+            return;
+        }
+        
+        // If 0 clicks, just continue normal boot
+        
+        // Check for double reset -> Commissioning
         if (checkDoubleReset()) {
             NVSManager::factoryReset();
             currentMode = SystemMode::COMMISSIONING;

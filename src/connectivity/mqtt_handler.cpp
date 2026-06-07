@@ -49,6 +49,8 @@ static const char* getResetReasonString() {
 // Public API
 
 bool MQTTHandler::connect() {
+    if (mqttClient.connected()) return true;
+
     // Build topics
     const char *deviceId = DeviceID::get();
     snprintf(topicTelemetry, sizeof(topicTelemetry), "%s", MQTT_TOPIC_TELEMETRY);
@@ -98,16 +100,8 @@ bool MQTTHandler::isConnected() {
 bool MQTTHandler::publishTelemetry(float rawDistance, float waterLevel, const char *status, bool rainDetected, const char *sensorFlag, uint64_t nextWakeupSec) {
     if (!mqttClient.connected()) return false;
 
-    // Fetch location from NVS
-    LocationConfig lCfg;
-    const char* locStr = "Unknown";
-    if (NVSManager::loadLocationConfig(lCfg) && lCfg.valid && strlen(lCfg.location) > 0) {
-        locStr = lCfg.location;
-    }
-
     JsonDocument doc;
     doc["device_id"] = DeviceID::get();
-    doc["location"] = locStr;
     doc["water_distance"] = rawDistance;
     doc["water_level_cm"] = waterLevel;
     doc["status"] = status;
@@ -124,8 +118,33 @@ bool MQTTHandler::publishTelemetry(float rawDistance, float waterLevel, const ch
     return ok;
 }
 
+bool MQTTHandler::publishDeviceInfo() {
+    if (!mqttClient.connected()) return false;
 
+    // Fetch location from NVS
+    LocationConfig lCfg;
+    const char* locStr = "Unknown";
+    if (NVSManager::loadLocationConfig(lCfg) && lCfg.valid && strlen(lCfg.location) > 0) {
+        locStr = lCfg.location;
+    }
 
+    JsonDocument doc;
+    doc["device_id"] = DeviceID::get();
+    doc["location"] = locStr;
+    doc["ip_address"] = WiFi.localIP().toString();
+    doc["timestamp"] = (uint32_t)time(nullptr);
+
+    char buffer[256];
+    serializeJson(doc, buffer, sizeof(buffer));
+
+    // Use the predefined topic for device info
+    char infoTopic[64];
+    snprintf(infoTopic, sizeof(infoTopic), "%s", MQTT_TOPIC_DEVICE_INFO);
+
+    bool ok = mqttClient.publish(infoTopic, buffer);
+    Serial.printf("[MQTT] Device Info [%s] %s\n", doc["ip_address"].as<const char*>(), ok ? "sent" : "FAILED");
+    return ok;
+}
 bool MQTTHandler::publishLog(const char *level, const char *message) {
     if (!mqttClient.connected()) return false;
 

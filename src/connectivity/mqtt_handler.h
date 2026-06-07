@@ -31,7 +31,10 @@ namespace MQTTHandler {
      */
     bool publishLog(const char *level, const char *message);
 
-
+    /**
+     * Publish device info (IP Address, etc) on boot.
+     */
+    bool publishDeviceInfo();
 
     /**
      * Disconnect from broker.

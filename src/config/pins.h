@@ -5,7 +5,7 @@
 #define PIN_ULTRASONIC_ECHO   13    // AJ-SR04M Echo (pull-down 10kΩ)
 #define PIN_RAIN_SENSOR       GPIO_NUM_15  // Rain DO — EXT0 wake (active LOW, strapping pin!)
 #define PIN_STATUS_LED        33    // On-board red LED
-#define PIN_EXT_LED           12    // External status LED (strapping pin, but safe for LED output)
+#define PIN_FACTORY_RESET     12    // Hardware reset button (Active Low, Strapping pin - MUST NOT use external pull-up. Button must wire directly to GND. MTDI must boot LOW for 3.3V flash)
 #define PIN_FLASH_LED         4     // Camera flash LED
 
 // OV2640 Camera Pins (AI-Thinker Board)
