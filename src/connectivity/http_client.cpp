@@ -100,7 +100,7 @@ static bool uploadImage(const char *url, camera_fb_t *fb, const char *fieldName)
         return false;
     }
 
-    String boundary = "IFMS" + String(millis());
+    String boundary = "IOT" + String(millis());
     String head = "--" + boundary + "\r\n" +
                   "Content-Disposition: form-data; name=\"device_id\"\r\n\r\n" +
                   String(DeviceID::get()) + "\r\n" +

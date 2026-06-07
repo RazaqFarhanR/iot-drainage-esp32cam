@@ -40,15 +40,6 @@ bool NTPSync::sync() {
 }
 
 uint32_t NTPSync::getTime() {
-    RTCData &rtc = StateMachine::getRTCData();
-
-    if (rtc.ntpSynced && rtc.ntpEpochBase > 0) {
-        // Estimate current time from saved base
-        uint32_t elapsed = (millis() - rtc.ntpMillisBase) / 1000;
-        return rtc.ntpEpochBase + elapsed;
-    }
-
-    // Fallback: system time (may be 0)
     return (uint32_t)time(nullptr);
 }
 

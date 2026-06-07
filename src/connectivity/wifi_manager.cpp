@@ -77,7 +77,7 @@ bool WiFiMgr::connect() {
 
 void WiFiMgr::startAP() {
     char apSSID[32];
-    snprintf(apSSID, sizeof(apSSID), "IFMS-%s", DeviceID::get() + 5);  // Skip "IFMS-" prefix, use MAC part
+    snprintf(apSSID, sizeof(apSSID), "IOT-%s", DeviceID::get() + 4);  // Skip "IOT-" prefix, use MAC part
     // Actually use the full device ID as SSID
     snprintf(apSSID, sizeof(apSSID), "%s", DeviceID::get());
 
@@ -116,9 +116,18 @@ void WiFiMgr::saveConnectionInfo() {
 
     // Update network params
     strncpy(cfg.ip, WiFi.localIP().toString().c_str(), sizeof(cfg.ip) - 1);
+    cfg.ip[sizeof(cfg.ip) - 1] = '\0';
     strncpy(cfg.gateway, WiFi.gatewayIP().toString().c_str(), sizeof(cfg.gateway) - 1);
+    cfg.gateway[sizeof(cfg.gateway) - 1] = '\0';
     strncpy(cfg.subnet, WiFi.subnetMask().toString().c_str(), sizeof(cfg.subnet) - 1);
-    memcpy(cfg.bssid, WiFi.BSSID(), 6);
+    cfg.subnet[sizeof(cfg.subnet) - 1] = '\0';
+    
+    uint8_t* bssid = WiFi.BSSID();
+    if (bssid) {
+        memcpy(cfg.bssid, bssid, 6);
+    } else {
+        memset(cfg.bssid, 0, 6);
+    }
     cfg.channel = WiFi.channel();
     cfg.valid = true;
 

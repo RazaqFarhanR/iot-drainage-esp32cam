@@ -10,7 +10,7 @@ namespace WiFiMgr {
 
     /**
      * Start Access Point mode for commissioning.
-     * SSID format: "IFMS-{device_id}"
+     * SSID format: "IOT-{device_id}"
      */
     void startAP();
 

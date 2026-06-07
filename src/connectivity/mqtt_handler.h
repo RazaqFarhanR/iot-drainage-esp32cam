@@ -2,8 +2,7 @@
 
 #include <ArduinoJson.h>
 
-// Callback type for incoming MQTT commands
-typedef void (*MQTTCommandCallback)(const char *cmd, JsonDocument &doc);
+
 
 namespace MQTTHandler {
     /**
@@ -25,32 +24,14 @@ namespace MQTTHandler {
     /**
      * Publish telemetry data.
      */
-    bool publishTelemetry(float waterLevel, float rawDistance,
-                          const char *status, const char *sensorFlag,
-                          bool rainDetected, int rssi, bool timeSynced,
-                          bool lastUploadFailed);
-
-    /**
-     * Publish diagnostic results.
-     */
-    bool publishDiagnostic(int sampleCount, float median,
-                           float variance, float minVal, float maxVal,
-                           const char *sensorStatus);
-
-    /**
-     * Publish response to a command.
-     */
-    bool publishResponse(const char *cmd, const char *msg_id, const char *status, int code, const char *message);
+    bool publishTelemetry(float rawDistance, float waterLevel, const char *status, bool rainDetected, const char *sensorFlag, uint64_t nextWakeupSec);
 
     /**
      * Publish system log event.
      */
     bool publishLog(const char *level, const char *message);
 
-    /**
-     * Set callback for incoming commands.
-     */
-    void setCommandCallback(MQTTCommandCallback callback);
+
 
     /**
      * Disconnect from broker.

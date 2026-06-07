@@ -7,83 +7,42 @@
 #include <WiFi.h>
 #include <Arduino.h>
 #include <mbedtls/md.h>
+#include "../core/state_machine.h"
+#include <esp_sleep.h>
+#include <esp_system.h>
 
 static WiFiClient mqttWiFiClient;
 static PubSubClient mqttClient(mqttWiFiClient);
-static MQTTCommandCallback cmdCallback = nullptr;
 
 // Topic buffers
 static char topicTelemetry[64];
-static char topicDiagnostic[64];
-static char topicCmd[64];
-static char topicRes[64];
 static char topicLog[64];
 
-// HMAC-SHA256 Token Verification
-
-static bool verifyToken(const char *token, uint32_t timestamp) {
-    DeviceConfig cfg;
-    bool hasSecret = NVSManager::loadDeviceConfig(cfg) && cfg.valid && strlen(cfg.device_secret) > 0;
-
-    if (!hasSecret) {
-        Serial.println("[MQTT] WARNING: No device secret — accepting in dev mode");
-        return true;
+// Helpers for advanced logging
+static const char* getWakeReasonString() {
+    switch (esp_sleep_get_wakeup_cause()) {
+        case ESP_SLEEP_WAKEUP_EXT0: return "EXT0_RAIN";
+        case ESP_SLEEP_WAKEUP_TIMER: return "TIMER";
+        case ESP_SLEEP_WAKEUP_TOUCHPAD: return "TOUCH";
+        case ESP_SLEEP_WAKEUP_ULP: return "ULP";
+        case ESP_SLEEP_WAKEUP_UNDEFINED: return "POWER_ON";
+        default: return "OTHER";
     }
-
-    if (!token || strlen(token) == 0) {
-        return false;
-    }
-
-    // Verify HMAC-SHA256(device_secret, timestamp_string)
-    char tsStr[16];
-    snprintf(tsStr, sizeof(tsStr), "%u", timestamp);
-
-    uint8_t hmacResult[32];
-    mbedtls_md_context_t ctx;
-    mbedtls_md_init(&ctx);
-    mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1);
-    mbedtls_md_hmac_starts(&ctx, (const uint8_t *)cfg.device_secret, strlen(cfg.device_secret));
-    mbedtls_md_hmac_update(&ctx, (const uint8_t *)tsStr, strlen(tsStr));
-    mbedtls_md_hmac_finish(&ctx, hmacResult);
-    mbedtls_md_free(&ctx);
-
-    // Convert to hex string
-    char computed[65];
-    for (int i = 0; i < 32; i++) {
-        snprintf(computed + (i * 2), 3, "%02x", hmacResult[i]);
-    }
-
-    return (strcmp(token, computed) == 0);
 }
 
-// MQTT Callback
-
-static void mqttCallback(char *topic, byte *payload, unsigned int length) {
-    char message[512];
-    size_t copyLen = (length < sizeof(message) - 1) ? length : sizeof(message) - 1;
-    memcpy(message, payload, copyLen);
-    message[copyLen] = '\0';
-
-    Serial.printf("[MQTT] Received on %s: %s\n", topic, message);
-
-    JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, message);
-    if (err) {
-        Serial.printf("[MQTT] JSON parse error: %s\n", err.c_str());
-        return;
-    }
-
-    // Token verification
-    const char *token = doc["token"] | "";
-    uint32_t ts = doc["ts"] | 0;
-    if (!verifyToken(token, ts)) {
-        Serial.println("[MQTT] Token verification FAILED — ignoring command");
-        return;
-    }
-
-    const char *cmd = doc["cmd"] | "";
-    if (cmdCallback && strlen(cmd) > 0) {
-        cmdCallback(cmd, doc);
+static const char* getResetReasonString() {
+    switch (esp_reset_reason()) {
+        case ESP_RST_POWERON: return "POWERON_RESET";
+        case ESP_RST_EXT: return "EXTERNAL_RESET";
+        case ESP_RST_SW: return "SW_RESET";
+        case ESP_RST_PANIC: return "PANIC";
+        case ESP_RST_INT_WDT: return "INT_WDT";
+        case ESP_RST_TASK_WDT: return "TASK_WDT";
+        case ESP_RST_WDT: return "OTHER_WDT";
+        case ESP_RST_DEEPSLEEP: return "DEEPSLEEP_RESET";
+        case ESP_RST_BROWNOUT: return "BROWNOUT_RESET";
+        case ESP_RST_SDIO: return "SDIO_RESET";
+        default: return "UNKNOWN";
     }
 }
 
@@ -93,10 +52,7 @@ bool MQTTHandler::connect() {
     // Build topics
     const char *deviceId = DeviceID::get();
     snprintf(topicTelemetry, sizeof(topicTelemetry), "%s", MQTT_TOPIC_TELEMETRY);
-    snprintf(topicDiagnostic, sizeof(topicDiagnostic), "device/%s/diagnostic", deviceId);
-    snprintf(topicCmd, sizeof(topicCmd), "device/%s/cmd", deviceId);
-    snprintf(topicRes, sizeof(topicRes), "device/%s/res", deviceId);
-    snprintf(topicLog, sizeof(topicLog), "device/%s/log", deviceId);
+    snprintf(topicLog, sizeof(topicLog), "%s", MQTT_TOPIC_LOG);
 
     // Get broker config
     BackendConfig backend;
@@ -108,8 +64,7 @@ bool MQTTHandler::connect() {
     }
 
     mqttClient.setServer(broker, port);
-    mqttClient.setCallback(mqttCallback);
-    mqttClient.setBufferSize(512);
+    mqttClient.setBufferSize(768);
 
     int attempts = 0;
     while (!mqttClient.connected() && attempts < 3) {
@@ -118,9 +73,6 @@ bool MQTTHandler::connect() {
 
         if (mqttClient.connect(deviceId, MQTT_USER, MQTT_PASS)) {
             Serial.println("[MQTT] Connected!");
-            // Subscribe to command topic
-            mqttClient.subscribe(topicCmd, MQTT_QOS);
-            Serial.printf("[MQTT] Subscribed to: %s\n", topicCmd);
             return true;
         }
 
@@ -143,88 +95,59 @@ bool MQTTHandler::isConnected() {
     return mqttClient.connected();
 }
 
-bool MQTTHandler::publishTelemetry(float waterLevel, float rawDistance,
-                                    const char *status, const char *sensorFlag,
-                                    bool rainDetected, int rssi, bool timeSynced,
-                                    bool lastUploadFailed) {
+bool MQTTHandler::publishTelemetry(float rawDistance, float waterLevel, const char *status, bool rainDetected, const char *sensorFlag, uint64_t nextWakeupSec) {
     if (!mqttClient.connected()) return false;
+
+    // Fetch location from NVS
+    LocationConfig lCfg;
+    const char* locStr = "Unknown";
+    if (NVSManager::loadLocationConfig(lCfg) && lCfg.valid && strlen(lCfg.location) > 0) {
+        locStr = lCfg.location;
+    }
 
     JsonDocument doc;
     doc["device_id"] = DeviceID::get();
-    doc["water_level_cm"] = waterLevel;
+    doc["location"] = locStr;
     doc["water_distance"] = rawDistance;
+    doc["water_level_cm"] = waterLevel;
     doc["status"] = status;
-    doc["sensor_flag"] = sensorFlag;
     doc["rain_detected"] = rainDetected;
-    doc["rssi_dbm"] = rssi;
-    doc["time_synced"] = timeSynced;
+    doc["sensor_flag"] = sensorFlag;
     doc["timestamp"] = (uint32_t)time(nullptr);
-
-    if (lastUploadFailed) {
-        doc["last_upload_failed"] = true;
-    }
+    doc["next_wakeup_sec"] = nextWakeupSec;
 
     char buffer[384];
     serializeJson(doc, buffer, sizeof(buffer));
 
     bool ok = mqttClient.publish(topicTelemetry, buffer);
-    Serial.printf("[MQTT] Telemetry %s: %s\n", ok ? "sent" : "FAILED", status);
+    Serial.printf("[MQTT] Telemetry %s\n", ok ? "sent" : "FAILED");
     return ok;
 }
 
-bool MQTTHandler::publishDiagnostic(int sampleCount, float median,
-                                     float variance, float minVal, float maxVal,
-                                     const char *sensorStatus) {
-    if (!mqttClient.connected()) return false;
 
-    JsonDocument doc;
-    doc["type"] = "sensor_diagnostic";
-    doc["device_id"] = DeviceID::get();
-    doc["sample_count"] = sampleCount;
-    doc["median_cm"] = median;
-    doc["variance"] = variance;
-    doc["min_cm"] = minVal;
-    doc["max_cm"] = maxVal;
-    doc["sensor_status"] = sensorStatus;
-
-    char buffer[256];
-    serializeJson(doc, buffer, sizeof(buffer));
-
-    bool ok = mqttClient.publish(topicDiagnostic, buffer);
-    Serial.printf("[MQTT] Diagnostic %s: %s\n", ok ? "sent" : "FAILED", sensorStatus);
-    return ok;
-}
-
-bool MQTTHandler::publishResponse(const char *cmd, const char *msg_id, const char *status, int code, const char *message) {
-    if (!mqttClient.connected()) return false;
-
-    JsonDocument doc;
-    doc["cmd"] = cmd;
-    doc["msg_id"] = msg_id;
-    doc["status"] = status;
-    doc["code"] = code;
-    doc["message"] = message;
-    doc["timestamp"] = (uint32_t)time(nullptr);
-
-    char buffer[256];
-    serializeJson(doc, buffer, sizeof(buffer));
-
-    bool ok = mqttClient.publish(topicRes, buffer);
-    Serial.printf("[MQTT] Response to %s: %s\n", cmd, ok ? "sent" : "FAILED");
-    return ok;
-}
 
 bool MQTTHandler::publishLog(const char *level, const char *message) {
     if (!mqttClient.connected()) return false;
 
     JsonDocument doc;
     doc["device_id"] = DeviceID::get();
+    doc["timestamp"] = (uint32_t)time(nullptr);
     doc["level"] = level;
     doc["message"] = message;
-    doc["timestamp"] = (uint32_t)time(nullptr);
+    
+    // Diagnostic Metadata (Ultimate RCA)
+    doc["wake_reason"] = getWakeReasonString();
+    doc["reset_reason"] = getResetReasonString();
+    doc["active_time_ms"] = millis();
+    doc["wifi_rssi_dbm"] = WiFi.RSSI();
+    doc["network_failures"] = StateMachine::getRTCData().wifiFailCount;
+    doc["free_heap_bytes"] = ESP.getFreeHeap();
 
-    char buffer[384];
+    char buffer[512];
     serializeJson(doc, buffer, sizeof(buffer));
+
+    // Ensure MQTT client can handle this payload size
+    mqttClient.setBufferSize(768);
 
     // Using QoS 0 for publish since PubSubClient doesn't easily support QoS 1
     bool ok = mqttClient.publish(topicLog, buffer);
@@ -232,9 +155,6 @@ bool MQTTHandler::publishLog(const char *level, const char *message) {
     return ok;
 }
 
-void MQTTHandler::setCommandCallback(MQTTCommandCallback callback) {
-    cmdCallback = callback;
-}
 
 void MQTTHandler::disconnect() {
     if (mqttClient.connected()) {
