@@ -18,6 +18,7 @@
 
 #define MQTT_QOS                1
 #define MQTT_TOPIC_TELEMETRY    "compro9.26.telyu-iot-drainage-be/sensor-data"
+#define MQTT_TOPIC_LOG          "compro9.26.telyu-iot-drainage-be/sensor-log"
 
 /* -------------------------------------------------------------------------- */
 /*                            HTTP API & Endpoints                            */

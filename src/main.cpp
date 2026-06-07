@@ -7,7 +7,7 @@
 #include "config/defaults.h"
 #include "modes/commissioning.h"
 #include "modes/operational.h"
-#include "modes/maintenance.h"
+
 #include "modes/offline.h"
 #include <driver/rtc_io.h>
 
@@ -17,7 +17,7 @@ void setup() {
 
     Serial.println("\n");
     Serial.println("╔══════════════════════════════════════════════╗");
-    Serial.println("║  IFMS — Intelligent Flood Monitoring System  ║");
+    Serial.println("║  IoTDrainage — Intelligent Flood Monitoring  ║");
     Serial.println("║  ESP32-CAM AI-Thinker | Clean Architecture   ║");
     Serial.println("╚══════════════════════════════════════════════╝");
     Serial.println();
@@ -53,29 +53,28 @@ void setup() {
                 break;
 
             case SystemMode::OPERATIONAL:
-                OperationalMode::run();
-                // Operational calls enterDeepSleep() at the end
-                // If it returns, a mode transition was requested
-                if (StateMachine::getCurrentMode() == SystemMode::MAINTENANCE) {
-                    continue;
-                } else if (StateMachine::getCurrentMode() == SystemMode::COMMISSIONING) {
-                    continue;
-                } else if (StateMachine::getCurrentMode() == SystemMode::OFFLINE) {
-                    continue;
-                }
-                running = false;
-                break;
+            OperationalMode::run();
+            // Operational calls enterDeepSleep() at the end
+            // If it returns, a mode transition was requested
+            if (StateMachine::getCurrentMode() == SystemMode::COMMISSIONING) {
+                continue;
+            } else if (StateMachine::getCurrentMode() == SystemMode::OFFLINE) {
+                continue;
+            } else if (StateMachine::getCurrentMode() == SystemMode::MAINTENANCE) {
+                continue;
+            }
+            running = false;
+            break;
 
-            case SystemMode::MAINTENANCE:
-                MaintenanceMode::run();
-                // After maintenance, go to operational (sleep)
-                if (StateMachine::getCurrentMode() == SystemMode::OPERATIONAL) {
-                    // Enter deep sleep for next operational cycle
-                    Watchdog::setPhase(WDTPhase::SLEEP);
-                    StateMachine::enterDeepSleep(SLEEP_NORMAL_SEC);
-                }
-                running = false;
-                break;
+        case SystemMode::MAINTENANCE:
+            Serial.println("[MAIN] Maintenance requested. Entering safe hibernation...");
+            StateMachine::getRTCData().maintenanceRequested = false;
+            StateMachine::getRTCData().stuckCounter = 0;
+            // Sleep for 1 hour to prevent battery drain while waiting for technician
+            StateMachine::enterDeepSleep(3600);
+            running = false;
+            break;
+
 
             case SystemMode::OFFLINE:
                 OfflineMode::run();
