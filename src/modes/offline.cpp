@@ -22,9 +22,7 @@ void OfflineMode::run() {
         return;
     }
 
-    // WiFi still down — increment retry and backoff
-    rtc.offlineRetryCount++;
-
+    // WiFi still down — handle failure (increments retry and checks for commissioning)
     bool shouldGoCommissioning = !WiFiMgr::handleConnectFailure();
     if (shouldGoCommissioning) {
         Serial.println("[OFFLINE] Max WiFi failures → Commissioning");
