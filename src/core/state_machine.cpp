@@ -34,7 +34,6 @@ void StateMachine::validateRTCData() {
 
         rtcData.lastUploadFailed = false;
         rtcData.maintenanceRequested = false;
-        rtcData.resetCount = 0;
         memset(rtcData.pendingLog, 0, sizeof(rtcData.pendingLog));
         memset(rtcData.pendingLogLevel, 0, sizeof(rtcData.pendingLogLevel));
     }
@@ -71,18 +70,6 @@ void StateMachine::bufferLog(const char* level, const char* message) {
     }
 }
 
-// Boot Logic
-
-bool StateMachine::checkDoubleReset() {
-    if (rtcData.resetCount > 0) {
-        rtcData.resetCount = 0;
-        Serial.println("[SM] *** Double Reset detected ***");
-        return true;
-    }
-    rtcData.resetCount = 1;
-    return false;
-}
-
 int StateMachine::detectBootClicks() {
     pinMode(PIN_FACTORY_RESET, INPUT_PULLUP);
     pinMode(PIN_STATUS_LED, OUTPUT);
@@ -91,10 +78,12 @@ int StateMachine::detectBootClicks() {
     Serial.println("[SM] Monitoring button clicks for 2.5s...");
     
     int clicks = 0;
-    bool lastState = HIGH;
+    bool initialReading = digitalRead(PIN_FACTORY_RESET);
+    bool stableState = initialReading;
+    bool lastReading = initialReading;
     uint32_t startTime = millis();
     uint32_t lastDebounceTime = 0;
-    const uint32_t debounceDelay = 150;
+    const uint32_t debounceDelay = 50; // 50ms debounce for responsiveness
 
     while (millis() - startTime < 2500) {
         // Blink LED rapidly to indicate we are in the boot window
@@ -105,20 +94,22 @@ int StateMachine::detectBootClicks() {
         }
 
         bool reading = digitalRead(PIN_FACTORY_RESET);
-        if (reading != lastState) {
+        if (reading != lastReading) {
             lastDebounceTime = millis();
+            lastReading = reading;
         }
 
         if ((millis() - lastDebounceTime) > debounceDelay) {
-            // If the button state changed (HIGH -> LOW means pressed)
-            if (reading == LOW && lastState == HIGH) {
-                clicks++;
-                Serial.printf("[SM] Click %d detected\n", clicks);
-                // Turn LED solid ON for a moment to acknowledge click
-                digitalWrite(PIN_STATUS_LED, LOW);
-                delay(100); 
+            if (reading != stableState) {
+                stableState = reading;
+                if (stableState == LOW) {
+                    clicks++;
+                    Serial.printf("[SM] Click %d detected\n", clicks);
+                    // Turn LED solid ON for a moment to acknowledge click
+                    digitalWrite(PIN_STATUS_LED, LOW);
+                    delay(100); 
+                }
             }
-            lastState = reading;
         }
         delay(10);
     }
@@ -140,6 +131,21 @@ void StateMachine::init() {
 
     // Check reset reason
     esp_reset_reason_t reason = esp_reset_reason();
+    esp_sleep_wakeup_cause_t wakeup = esp_sleep_get_wakeup_cause();
+
+    Serial.printf("[SM] DIAGNOSTICS: Reset Reason = %d, Wakeup Cause = %d\n", (int)reason, (int)wakeup);
+
+    // Temp pin check to diagnose instant wakeup
+    pinMode(PIN_FACTORY_RESET, INPUT_PULLUP);
+    pinMode(PIN_RAIN_SENSOR, INPUT_PULLUP);
+    delay(50); // allow pin states to settle
+    int resetBtnVal = digitalRead(PIN_FACTORY_RESET);
+    int rainSensorVal = digitalRead(PIN_RAIN_SENSOR);
+    Serial.printf("[SM] DIAGNOSTICS: Reset Button (GPIO %d) = %d (%s)\n", 
+                  PIN_FACTORY_RESET, resetBtnVal, resetBtnVal == LOW ? "LOW" : "HIGH");
+    Serial.printf("[SM] DIAGNOSTICS: Rain Sensor (GPIO %d) = %d (%s)\n", 
+                  (int)PIN_RAIN_SENSOR, rainSensorVal, rainSensorVal == LOW ? "LOW" : "HIGH");
+
     if (reason == ESP_RST_TASK_WDT || reason == ESP_RST_WDT || reason == ESP_RST_INT_WDT) {
         bufferLog("ERROR", "Watchdog reset detected (System Hang)");
     } else if (reason == ESP_RST_BROWNOUT) {
@@ -148,33 +154,30 @@ void StateMachine::init() {
         bufferLog("INFO", "Perangkat dihidupkan ulang secara fisik (Cold Boot)");
     }
 
-    esp_sleep_wakeup_cause_t wakeup = esp_sleep_get_wakeup_cause();
-
-    // Check for physical hardware button clicks FIRST (only on cold boot/reset, not deep sleep)
-    if (wakeup == ESP_SLEEP_WAKEUP_UNDEFINED) {
+    // Check for physical hardware button clicks (on cold boot or EXT1 deep sleep wake)
+    if (wakeup == ESP_SLEEP_WAKEUP_UNDEFINED || wakeup == ESP_SLEEP_WAKEUP_EXT1) {
         int clicks = detectBootClicks();
-        if (clicks == 1) {
-            Serial.println("[SM] 1 Click detected -> Local Commissioning");
+        int totalClicks = clicks;
+        
+        // If it woke up from deep sleep due to button press, that counts as 1 click already
+        if (wakeup == ESP_SLEEP_WAKEUP_EXT1) {
+            totalClicks += 1;
+            Serial.println("[SM] Boot reason: EXT1 (Button press woke device up)");
+        }
+
+        if (totalClicks == 2) {
+            Serial.println("[SM] 2 Clicks detected -> Local Commissioning (STA mode)");
             setLocalCommissioning(true);
             currentMode = SystemMode::COMMISSIONING;
             return;
-        } else if (clicks >= 3) {
+        } else if (totalClicks >= 3) {
             Serial.println("[SM] 3+ Clicks detected -> AP Commissioning & Factory Reset");
             NVSManager::factoryReset();
             setLocalCommissioning(false);
             currentMode = SystemMode::COMMISSIONING;
             return;
         }
-        
-        // If 0 clicks, just continue normal boot
-        
-        // Check for double reset -> Commissioning
-        if (checkDoubleReset()) {
-            NVSManager::factoryReset();
-            currentMode = SystemMode::COMMISSIONING;
-            Serial.println("[SM] Boot → COMMISSIONING (double reset)");
-            return;
-        }
+        // If 1 click or 0 clicks, just continue normal boot
     }
 
     // Conditional boot logic: check NVS wifi_cfg
@@ -215,7 +218,9 @@ uint64_t StateMachine::getOfflineBackoffSeconds() {
 
 void StateMachine::enterDeepSleep(uint64_t sleepSeconds) {
     Serial.printf("[SM] Entering deep sleep for %llu seconds...\n", sleepSeconds);
-    rtcData.resetCount = 0;
+
+    // Enable EXT1 Wakeup for Factory Reset Button (GPIO 13)
+    esp_sleep_enable_ext1_wakeup(1ULL << PIN_FACTORY_RESET, ESP_EXT1_WAKEUP_ALL_LOW);
 
     // Release sensor pins
     rtc_gpio_hold_dis((gpio_num_t)PIN_ULTRASONIC_TRIG);
@@ -238,6 +243,10 @@ void StateMachine::enterDeepSleep(uint64_t sleepSeconds) {
 
     // Secure rain sensor pin
     rtc_gpio_pullup_en((gpio_num_t)PIN_RAIN_SENSOR);
+
+    // Secure factory reset button pin (GPIO 13) to prevent floating and spurious wakeups
+    rtc_gpio_pullup_en((gpio_num_t)PIN_FACTORY_RESET);
+    rtc_gpio_pulldown_dis((gpio_num_t)PIN_FACTORY_RESET);
 
     Serial.flush();
     esp_deep_sleep_start();

@@ -36,9 +36,6 @@ void Watchdog::feed() {
     if (wdtInitialized) {
         esp_task_wdt_reset();
     }
-    if (millis() > DOUBLE_RESET_WINDOW_MS) {
-        StateMachine::getRTCData().resetCount = 0;
-    }
 }
 
 void Watchdog::disable() {

@@ -55,9 +55,7 @@ struct RTCData {
     // Maintenance mode flag
     bool     maintenanceRequested;
 
-    // Double reset detection
-    uint32_t lastResetTime;
-    uint8_t  resetCount;
+    // Double reset detection (Removed in favor of Double Click)
 
     // Pending log to flush via MQTT
     char     pendingLog[128];
@@ -99,10 +97,7 @@ namespace StateMachine {
     bool isLocalCommissioning();
     void setLocalCommissioning(bool state);
 
-    /**
-     * Check for double reset (2x press < 3s).
-     */
-    bool checkDoubleReset();
+
 
     /**
      * Access RTC data (persists across deep sleep).
