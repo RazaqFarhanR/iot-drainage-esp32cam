@@ -14,7 +14,7 @@ Sistem **IoTDrainage** menggunakan ESP32-CAM (AI-Thinker) sebagai core processin
 - **Mikrokontroler**: ESP32-CAM AI-Thinker
 - **Sensor Jarak/Air**: Ultrasonic AJ-SR04M (Pin Trig: 14, Pin Echo: 13)
 - **Sensor Hujan**: Rain Sensor Module (Pin DO: GPIO 15, Active LOW, mengaktifkan deep sleep wake-up EXT0)
-- **Kamera**: OV2640 dengan Flash LED (Pin 4)
+- **Kamera**: OV2640 dengan Flash LED (Pin 4) yang mendukung mode Auto, Always ON, atau Always OFF (dikonfigurasi via Web UI)
 - **LED Indikator**: On-board Red LED (Pin 33)
 
 ---
@@ -64,9 +64,9 @@ graph TD
     E --> F[Ambil 15 Sampel Ultrasonik]
     F --> G[Jalankan Self-Check]
     G --> H{Kalkulasi Status}
-    H -- Normal < 40cm --> I[Status: NORMAL]
-    H -- Waspada >= 40cm --> J[Status: WASPADA]
-    H -- Bahaya >= 80cm --> K[Status: BAHAYA]
+    H -- Level < thNormal --> I[Status: NORMAL]
+    H -- thNormal <= Level < thBahaya --> J[Status: WASPADA]
+    H -- Level >= thBahaya --> K[Status: BAHAYA]
     I --> L[Transmisi MQTT Telemetri]
     J --> L
     K --> L
@@ -86,9 +86,9 @@ graph TD
 4. **Pembacaan Sensor**: Membaca sensor ultrasonik dengan 15 sampel, lalu difilter menggunakan *median* dan *smoothing alpha* (0.4).
 5. **Self-Check**: Mengecek validitas data (mendeteksi _spike_, _variance_ tinggi, atau tersangkut/stuck).
 6. **Kalkulasi Status & Sleep Interval**:
-   - `NORMAL`: Jarak air < 40cm. Waktu tidur 60 menit.
-   - `WASPADA`: Jarak air >= 40cm. Waktu tidur 10 menit.
-   - `BAHAYA`: Jarak air >= 80cm (atau ada _Force Bahaya_). Waktu tidur 2 menit.
+   - `NORMAL`: Water Level < Threshold Normal (Default: 40cm). Waktu tidur 60 menit.
+   - `WASPADA`: Threshold Normal <= Water Level < Threshold Bahaya (Default Normal: 40cm, Bahaya: 80cm). Waktu tidur 10 menit.
+   - `BAHAYA`: Water Level >= Threshold Bahaya (Default: 80cm) atau ada *Force Bahaya*. Waktu tidur 2 menit.
 7. **Transmisi UPLINK**: Mem-publish data sensor (telemetri) via MQTT dengan indikator lampu LED berkedip lambat satu kali (sukses).
 8. **Manajemen Kamera**:
    - Jika status `BAHAYA`, kamera akan memotret dan melakukan HTTP POST ke backend. Jika gagal, akan di-flag untuk *retry* maksimal 5 kali pada siklus berikutnya.

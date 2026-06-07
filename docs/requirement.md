@@ -106,8 +106,8 @@ Fitur unggulan untuk memudahkan teknisi mengkalibrasi tinggi pemasangan sensor t
 > $$Water\_Level = Height_{sensor} - dist_{current}$$
 > Bandingkan dengan perkiraan visual kondisi air saat itu. Jika sesuai, lanjutkan.
 
-**Langkah 3 — Tentukan Threshold secara Visual**
-> Gunakan slider interaktif di Web UI untuk menggeser nilai Threshold Normal dan Bahaya sambil melihat posisi relatifnya terhadap tinggi sensor.
+**Langkah 3 — Tentukan Threshold**
+> Tentukan ambang batas Normal dan Bahaya dengan memasukkan nilai numerik secara langsung pada kolom input yang disediakan.
 
 **Tampilan Android saat Calibration Wizard:**
 
@@ -148,18 +148,30 @@ Fitur unggulan untuk memudahkan teknisi mengkalibrasi tinggi pemasangan sensor t
 - **Frame Kamera**: Dikirim sebagai Binary WebSocket Frame setiap **5 detik** (hanya jika ada klien aktif).
 - **Indikator LED**: GPIO 33 berkedip cepat setiap **200ms** — menandakan mode AP aktif.
 
-### 2.4 Form Konfigurasi Web UI (`http://192.168.4.1`)
+### 2.4 Form & Tata Letak Web UI (`http://192.168.4.1`)
+
+Antarmuka konfigurasi lokal dirancang secara modular menggunakan **Navigation Bar** pekat di bagian atas untuk memudahkan navigasi pada perangkat *mobile*:
+
+1. **Dashboard (Monitor):** Status diagnostik *live* perangkat (ID Perangkat, IP Address, SSID, RSSI, Boot Reason, Uptime, Free Heap, Jarak Terukur, Water Level, Rain Status).
+2. **Koneksi:** Form konfigurasi lokasi dan jaringan WiFi/server.
+3. **Sensor:** Terdiri dari dua sub-menu (*Segmented Control*): **Ambang Batas** (pilihan default) dan **Kalibrasi Tinggi**.
+4. **Kamera:** Pilihan *dropdown* flash mode dan peninjauan gambar secara *live*.
+
+Bilah simpan melayang (*Floating Save Bar*) akan muncul di bagian bawah layar secara otomatis saat pengguna membuka tab konfigurasi (**Koneksi**, **Sensor**, atau **Kamera**).
+
+**Kolom Parameter Konfigurasi:**
 
 | Field | Tipe | Keterangan |
 | :--- | :--- | :--- |
+| **Lokasi Pemasangan** | Text | Nama lokasi fisik pemasangan perangkat |
 | **WiFi SSID** | Text | Nama jaringan WiFi tujuan |
-| **WiFi Password** | Password | Kata sandi WiFi |
-| **Backend Host** | Text | IP/domain server backend |
-| **Backend Port** | Number | Port server (default: `3000`) |
-| **Tinggi Sensor** ($Height_{sensor}$) | Number (cm) | Auto-fill dari Calibration Wizard |
-| **Offset Kalibrasi** | Number (cm) | Koreksi manual selisih pembacaan |
-| **Threshold Normal** | Number (cm) | Batas ketinggian air kondisi aman |
-| **Threshold Bahaya** | Number (cm) | Batas ketinggian air kondisi bahaya |
+| **WiFi Password** | Password | Kata sandi WiFi (dimask `••••••••`, jika tidak diubah password lama tetap dipertahankan) |
+| **Backend URL / Host** | Text | Alamat endpoint backend (contoh: `192.168.1.100:3000` atau `api.production.com`). Otomatis diparsing menjadi host & port secara lokal oleh Javascript |
+| **Tinggi Sensor** ($Height_{sensor}$) | Number (cm) | Tinggi penempatan sensor dari dasar saluran (auto-fill dari tombol kalibrasi) |
+| **Offset Kalibrasi** | Number (cm) | Koreksi manual jika ada deviasi pembacaan fisik |
+| **Threshold Normal** | Number (cm) | Batas ketinggian air di mana status berubah dari NORMAL ke WASPADA |
+| **Threshold Bahaya** | Number (cm) | Batas ketinggian air di mana status berubah dari WASPADA ke BAHAYA |
+| **Mode Flash Kamera** | Dropdown | Mode lampu kilat: **AUTO** (hanya saat gelap), **Always ON**, atau **Always OFF** |
 
 ---
 

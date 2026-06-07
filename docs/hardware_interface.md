@@ -41,7 +41,10 @@ Sensor hujan mendeteksi keberadaan air hujan pada permukaannya. Sensor ini membe
 
 ### 2.3 Kamera OV2640
 
-Modul kamera OV2640 terintegrasi langsung pada board ESP32-CAM. Kamera ini digunakan untuk mengambil foto kondisi drainase, yang kemudian diunggah ke server. Kamera dilengkapi dengan **LED flash** yang menyala otomatis saat kondisi gelap untuk memastikan kualitas gambar tetap baik pada malam hari.
+Modul kamera OV2640 terintegrasi langsung pada board ESP32-CAM. Kamera ini digunakan untuk mengambil foto kondisi drainase, yang kemudian diunggah ke server. Kamera dilengkapi dengan **LED flash** (GPIO 4) yang mendukung tiga mode pencahayaan yang dapat diatur via Web UI:
+- **AUTO:** Lampu flash menyala secara cerdas hanya jika kondisi lingkungan terdeteksi gelap (berdasarkan analisis perbandingan kecerahan gambar).
+- **Always ON:** Lampu flash selalu menyala saat pengambilan gambar (penanganan Brownout/Voltage drop dinonaktifkan sementara demi keamanan).
+- **Always OFF:** Lampu flash dinonaktifkan sepenuhnya untuk menghemat daya baterai.
 
 ### 2.4 Diagram Wiring
 
