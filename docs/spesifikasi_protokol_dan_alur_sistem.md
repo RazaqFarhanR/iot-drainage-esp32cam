@@ -1,13 +1,13 @@
-# Spesifikasi Protokol Data & Alur Sistem - IoTDrainage (IFMS)
+# Spesifikasi Protokol Data & Alur Sistem - IoTDrainage
 
-Dokumen ini mendefinisikan arsitektur sistem, alur state-machine firmware, spesifikasi protokol uplink/downlink (MQTT), dan REST API HTTP berdasarkan codebase asli **Intelligent Flood Monitoring System (IFMS)**. Dokumen ditujukan sebagai referensi bagi tim pengembang Firmware, Backend, dan Mobile App.
+Dokumen ini mendefinisikan arsitektur sistem, alur state-machine firmware, spesifikasi protokol uplink/downlink (MQTT), dan REST API HTTP berdasarkan codebase asli **IoTDrainage**. Dokumen ditujukan sebagai referensi bagi tim pengembang Firmware, Backend, dan Mobile App.
 
 ---
 
 ## Bab 1: PENDAHULUAN & ARSITEKTUR
 
-Sistem **IoTDrainage / IFMS (Intelligent Flood Monitoring System)** menggunakan ESP32-CAM (AI-Thinker) sebagai core processing unit. Arsitektur sistem mengadopsi _Clean Architecture_ dengan kapabilitas pengiriman data dual-channel:
-1. **MQTT (Message Queuing Telemetry Transport)**: Digunakan untuk pengiriman data telemetri (sensor level air, curah hujan), status sistem, serta menerima perintah dari server (downlink).
+Sistem **IoTDrainage** menggunakan ESP32-CAM (AI-Thinker) sebagai core processing unit. Arsitektur sistem mengadopsi _Clean Architecture_ dengan kapabilitas pengiriman data dual-channel:
+1. **MQTT (Message Queuing Telemetry Transport)**: Digunakan untuk pengiriman data telemetri (sensor level air, curah hujan) secara satu arah (*Pure Publisher*).
 2. **HTTP/REST API**: Digunakan khusus untuk transmisi payload yang berat seperti pengiriman foto/snapshot kondisi drainase ke server backend.
 
 **Topologi & Perangkat Keras:**
@@ -72,10 +72,11 @@ graph TD
     K --> L
     L --> M{Status BAHAYA atau Jam 07:00?}
     M -- Ya --> N[Ambil Foto & Upload HTTP]
-    M -- Tidak --> O[Putuskan Koneksi Jaringan]
+    M -- Tidak --> O[Putuskan Jaringan]
     N --> O
-    O --> P{Hitung Waktu Deep Sleep}
-    P --> Q[Masuk Deep Sleep]
+    O --> P{Sensor Stuck / Rusak?}
+    P -- Ya --> Q[Pindah ke MAINTENANCE Mode]
+    P -- Tidak --> R[Masuk Deep Sleep]
 ```
 
 **Alur Operational:**
@@ -94,6 +95,19 @@ graph TD
    - Jika waktu menunjukkan pukul 07:00 pagi, ambil *Daily Snapshot* lalu kirim ke backend.
 9. **Deep Sleep**: Memutuskan WiFi & MQTT secara *graceful*, menyimpan data status sementara di RTC Memory, lalu masuk ke status tidur lelap (*Deep Sleep*).
 
+### C. Maintenance Mode
+Mode darurat/pemeliharaan yang aktif secara otomatis ketika sistem mendeteksi kegagalan sensor (misalnya sensor terdeteksi stuck/membaca nilai konstan selama 5 siklus berturut-turut).
+
+```mermaid
+graph TD
+    A[Start Maintenance] --> B[Reset stuckCounter & maintenanceRequested]
+    B --> C[Tidur Aman / Deep Sleep 1 Jam]
+```
+
+**Alur Maintenance:**
+1. **Pembersihan Status:** Mengosongkan data eror (`maintenanceRequested = false`) dan me-reset penghitung sensor stuck (`stuckCounter = 0`) agar sistem bersih saat teknisi memeriksa alat secara fisik.
+2. **Hibernasi Aman:** Memaksa mikrokontroler masuk ke mode *Deep Sleep* selama 1 jam (3600 detik) untuk mencegah sisa cadangan baterai terkuras habis ketika menunggu perbaikan dari petugas pemeliharaan. Setelah 1 jam, perangkat akan bangun kembali untuk mencoba operasi normal.
+
 ---
 
 ## Bab 3: SPESIFIKASI DATA UPLINK
@@ -109,33 +123,29 @@ Perangkat mempublikasikan data secara otomatis (_telemetry_) pada setiap siklus 
 | Key (JSON) | Tipe Data | Deskripsi & Contoh |
 |---|---|---|
 | `device_id` | String | ID Perangkat berbasis MAC Address (ex: `ESP32-1A2B3C`) |
-| `location` | String | String lokasi perangkat yang tersimpan di memori NVS |
-| `water_level_cm` | Float | Ketinggian air terukur dalam sentimeter |
+| `location` | String | Lokasi perangkat yang dikonfigurasi via Web UI |
 | `water_distance` | Float | Jarak mentah sensor ke permukaan air dalam sentimeter |
-| `status` | String | Status tinggi air: `"NORMAL"`, `"WASPADA"`, atau `"BAHAYA"` |
-| `sensor_flag` | String | Status diagnostik mandiri. Normal = `"OK"` |
+| `water_level_cm` | Float | Ketinggian air aktual terhitung |
+| `status` | String | Keputusan status dari IoT: `"NORMAL"`, `"WASPADA"`, atau `"BAHAYA"` |
 | `rain_detected` | Boolean | `true` jika hujan terdeteksi via EXT0 wake, `false` jika tidak |
-| `rain_intensity` | Float | `1.0` (jika hujan), `0.0` (jika tidak) |
-| `rssi_dbm` | Integer | Kekuatan sinyal WiFi dalam dBm |
-| `time_synced` | Boolean | `true` jika perangkat sukses sinkron NTP |
-| `timestamp` | Integer | Waktu Unix (_Unix Timestamp_) saat pengiriman |
-| `last_upload_failed` | Boolean | (Opsional) `true` jika foto BAHAYA sebelumnya gagal di-upload |
+| `sensor_flag` | String | Status diagnostik mandiri. Normal = `"OK"` |
+| `timestamp` | Integer | Waktu Unix (_Unix Timestamp_ - UTC) saat data dikirim |
+| `next_wakeup_sec` | Integer | _Dynamic Heartbeat_: Janji durasi (detik) alat akan tidur sebelum siklus berikutnya |
+
+*(Catatan: Field IoT telah dimodifikasi untuk menjadikannya _Source of Truth_ status, sekaligus mengakomodasi _Offline Detection_ via Heartbeat dinamis di Backend).*
 
 **Contoh Payload JSON (Uplink):**
 ```json
 {
   "device_id": "ESP32-A1B2C3",
   "location": "Drainase_Sektor_Utara",
-  "water_level_cm": 45.5,
   "water_distance": 104.5,
+  "water_level_cm": 45.5,
   "status": "WASPADA",
-  "sensor_flag": "OK",
   "rain_detected": true,
-  "rain_intensity": 1.0,
-  "rssi_dbm": -67,
-  "time_synced": true,
-  "timestamp": 1716892334,
-  "last_upload_failed": false
+  "sensor_flag": "OK",
+  "timestamp": 1717645000,
+  "next_wakeup_sec": 600
 }
 ```
 
@@ -147,161 +157,17 @@ Kamera mem-bypass MQTT untuk upload gambar _snapshot_ atau _bahaya_.
 
 ---
 
-## Bab 4: SPESIFIKASI PERINTAH DOWNLINK & ACKNOWLEDGMENT
+## Bab 4: KONFIGURASI PERANGKAT & MANAJEMEN COMMAND
 
-Perangkat mendengarkan _Command Topic_ secara asinkron selama 3 detik setelah berhasil mengirimkan data telemetri utama. Perintah dikelola menggunakan pola _Request-Response_ yang mengandalkan `msg_id` (Correlation ID).
+Berdasarkan pembaruan sistem terbaru, arsitektur IoT kini mengusung konsep **Pure Publisher**. Hal ini berarti:
+- Perangkat **TIDAK LAGI** menerima atau mendengarkan command dari jarak jauh via MQTT (Downlink dihapus).
+- Pemangkasan fitur command ini secara drastis meningkatkan efisiensi _Deep Sleep_, menghemat konsumsi daya baterai, serta menutup celah kerentanan memori dari pesan MQTT luar.
 
-- **Topic Downlink (Request)**: `device/<device_id>/cmd`
-- **Topic Uplink (Response)**: `device/<device_id>/res`
-- **Autentikasi (Token)**: Wajib disertakan `token` berupa _HMAC-SHA256_ dari (Device Secret + Timestamp), dan nilai `ts` (Unix Timestamp). *(Catatan: dilewati/bypass jika secret kosong dalam dev-mode)*.
-
-### Daftar Command yang Didukung & Parameter Request
-
-1. **`update_wifi`**: Mengubah kredensial WiFi dan me-reboot perangkat.
-   - Parameter: `"ssid"` (String), `"pass"` (String).
-2. **`set_thresholds`**: Mengubah batas ambang dan tinggi sensor (*baseline*).
-   - Parameter: `"normal_max_cm"` (Float), `"waspada_max_cm"` (Float), `"baseline_height_cm"` (Float).
-3. **`force_snapshot`**: Memaksa perangkat mengambil dan mengunggah gambar saat itu juga.
-   - Parameter: -
-4. **`set_flash_mode`**: Mengatur perilaku lampu Flash (Pin 4) kamera.
-   - Parameter: `"mode"` (String: `"ON"`, `"OFF"`, atau `"AUTO"`).
-5. **`enter_maintenance`**: Memaksa sistem masuk ke _Maintenance Mode_.
-   - Parameter: -
-6. **`reboot_setup`**: Melakukan `Factory Reset` di NVS dan *reboot* kembali ke _Commissioning Mode_.
-   - Parameter: -
-
-### Struktur Payload JSON Request & Response Tiap Command
-
-Berikut adalah contoh lengkap `payload` Request yang dikirim ke `device/<device_id>/cmd` dan Response yang dibalas ke `device/<device_id>/res`.
-*(Catatan: Semua Request wajib menyertakan `"token"` dan `"ts"`, atribut ini dihilangkan pada contoh di bawah demi keringkasan).*
-
-#### 1. `update_wifi`
-**Request:**
-```json
-{
-  "cmd": "update_wifi",
-  "msg_id": "req-wifi-01",
-  "ssid": "Drainage_WiFi",
-  "pass": "supersecret123"
-}
-```
-**Response:**
-```json
-{
-  "cmd": "update_wifi",
-  "msg_id": "req-wifi-01",
-  "status": "SUCCESS",
-  "code": 200,
-  "message": "WiFi updated, rebooting",
-  "timestamp": 1716892355
-}
-```
-
-#### 2. `set_thresholds`
-**Request:**
-```json
-{
-  "cmd": "set_thresholds",
-  "msg_id": "req-thresh-01",
-  "normal_max_cm": 40.0,
-  "waspada_max_cm": 80.0,
-  "baseline_height_cm": 150.0
-}
-```
-**Response:**
-```json
-{
-  "cmd": "set_thresholds",
-  "msg_id": "req-thresh-01",
-  "status": "SUCCESS",
-  "code": 200,
-  "message": "Thresholds updated",
-  "timestamp": 1716892355
-}
-```
-
-#### 3. `force_snapshot`
-**Request:**
-```json
-{
-  "cmd": "force_snapshot",
-  "msg_id": "req-snap-01"
-}
-```
-**Response (Success):**
-```json
-{
-  "cmd": "force_snapshot",
-  "msg_id": "req-snap-01",
-  "status": "SUCCESS",
-  "code": 200,
-  "message": "Snapshot uploaded",
-  "timestamp": 1716892355
-}
-```
-
-#### 4. `set_flash_mode`
-**Request:**
-```json
-{
-  "cmd": "set_flash_mode",
-  "msg_id": "req-flash-01",
-  "mode": "ON"
-}
-```
-**Response:**
-```json
-{
-  "cmd": "set_flash_mode",
-  "msg_id": "req-flash-01",
-  "status": "SUCCESS",
-  "code": 200,
-  "message": "Flash mode set to ON",
-  "timestamp": 1716892355
-}
-```
-
-#### 5. `enter_maintenance`
-**Request:**
-```json
-{
-  "cmd": "enter_maintenance",
-  "msg_id": "req-maint-01"
-}
-```
-**Response:**
-```json
-{
-  "cmd": "enter_maintenance",
-  "msg_id": "req-maint-01",
-  "status": "SUCCESS",
-  "code": 200,
-  "message": "Entering maintenance mode",
-  "timestamp": 1716892355
-}
-```
-
-#### 6. `reboot_setup`
-**Request:**
-```json
-{
-  "cmd": "reboot_setup",
-  "msg_id": "req-reboot-01"
-}
-```
-**Response:**
-```json
-{
-  "cmd": "reboot_setup",
-  "msg_id": "req-reboot-01",
-  "status": "SUCCESS",
-  "code": 200,
-  "message": "Factory reset and rebooting",
-  "timestamp": 1716892355
-}
-```
-
-*(Nilai `status` bisa berupa "SUCCESS" atau "FAILED" dengan `code` seperti 200, 400, atau 500).*
+### Cara Mengubah Konfigurasi Alat
+Karena _remote command_ telah ditiadakan, segala bentuk konfigurasi alat (perubahan WiFi, Lokasi, batas *threshold*) **harus** dilakukan secara fisik menggunakan fitur **Double Reset**:
+1. Tekan tombol `RST` (atau pin reset) pada alat sebanyak **2 kali berturut-turut secara cepat**.
+2. Alat akan melakukan _Factory Reset_ otomatis dan memancarkan WiFi (Access Point) untuk **Commissioning Mode**.
+3. Buka Web UI alat dan masukkan konfigurasi yang baru.
 
 ---
 
@@ -322,24 +188,7 @@ Firmware dilengkapi dengan logika **Progressive Fault Escalation** jika terjadi 
 - `"SENSOR_SUBMERGED"` : Permukaan air menempel pada sensor (Jarak dekat berlebihan).
 - `"SENSOR_DISPLACED"` : Nilai _Baseline drift_ tinggi.
 
-### B. Payload Diagnostik Khusus (Dipublikasikan jika perlu)
-- **Topic**: `ifms/<device_id>/diagnostic`
 
-**Contoh Payload Diagnostik UPLINK (Error Analysis):**
-```json
-{
-  "type": "sensor_diagnostic",
-  "device_id": "ESP32-A1B2C3",
-  "sample_count": 15,
-  "median_cm": 150.2,
-  "variance": 65.4,
-  "min_cm": 140.0,
-  "max_cm": 175.5,
-  "sensor_status": "SENSOR_UNSTABLE"
-}
-```
-
-### C. Manajemen Error WiFi (Offline Mode Backoff)
 Jika gagal koneksi WiFi, firmware menerapkan _exponential backoff_ (Mode OFFLINE) untuk tidur:
 - **Gagal 1-3x**: Retries tiap 5 menit (300 detik)
 - **Gagal 4-6x**: Retries tiap 15 menit (900 detik)

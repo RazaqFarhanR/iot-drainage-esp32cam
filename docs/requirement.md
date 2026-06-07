@@ -1,4 +1,4 @@
-# Spesifikasi Persyaratan Sistem (SRS): Intelligent Flood Monitoring System (IFMS)
+# Spesifikasi Persyaratan Sistem (SRS): Intelligent Flood Monitoring System (IoTDrainage)
 
 Dokumen ini mendefinisikan arsitektur **multi-mode**, tumpukan protokol komunikasi, dan standar teknis tingkat lanjut untuk sistem deteksi banjir berbasis ESP32-CAM (AI-Thinker) tanpa SD Card.
 
@@ -6,16 +6,16 @@ Dokumen ini mendefinisikan arsitektur **multi-mode**, tumpukan protokol komunika
 
 ## 1. Arsitektur Multi-Mode & Protokol Komunikasi
 
-Sistem beroperasi dalam **tiga mode** yang masing-masing memiliki tujuan berbeda:
+Sistem beroperasi dalam **empat mode** yang masing-masing memiliki tujuan berbeda:
 
-| Kebutuhan | Mode Commissioning | Mode Maintenance | Mode Operasional |
-| :--- | :--- | :--- | :--- |
-| **Tujuan** | Setup & Kalibrasi awal | Diagnostik & cek lapangan | Monitoring banjir aktif |
-| **Konektivitas** | Access Point (AP) | Station (STA) | Station (STA) |
-| **Protokol Data** | WebSocket (real-time) | MQTT (on-demand) | MQTT + HTTP POST |
-| **Konfigurasi** | HTTP Captive Portal | Read-only | Read-only |
-| **Status Daya** | Always On ($\approx$ 180–260 mA) | Per-siklus ($\approx$ 15–30 detik) | Per-siklus ($\approx$ 15–30 detik) |
-| **Durasi Aktif** | Maks. 10 menit | Maks. 3 menit | Per-siklus |
+| Kebutuhan | Mode Commissioning | Mode Operasional | Mode Maintenance | Mode Offline |
+| :--- | :--- | :--- | :--- | :--- |
+| **Tujuan** | Setup & Kalibrasi awal | Monitoring banjir aktif | Hibernasi aman saat sensor rusak | Mengantre koneksi saat jaringan putus |
+| **Konektivitas** | Access Point (AP) | Station (STA) | None (Offline) | Station (STA) retry |
+| **Protokol Data** | WebSocket (real-time) | MQTT + HTTP POST | None | None (Mencoba terhubung) |
+| **Konfigurasi** | HTTP Captive Portal | Read-only | Read-only | Read-only |
+| **Status Daya** | Always On ($\approx$ 180–260 mA) | Per-siklus ($\approx$ 15–30 s) | Hibernasi (Deep Sleep 1 jam) | Jeda tidur bertingkat (*backoff*) |
+| **Durasi Aktif** | Maks. 10 menit | Per-siklus | 1 jam per siklus | Jeda sesuai tingkat retry |
 
 ### 1.1 Logika Boot (Conditional Boot)
 
@@ -32,40 +32,38 @@ Untuk menghindari masuk Commissioning Mode secara tidak perlu (misal setelah mat
   TIDAK             YA
    │                 │
    ▼                 ▼
-COMMISSIONING    OPERATIONAL
-   MODE             MODE
+COMMISSIONING    OPERATIONAL / OFFLINE
+   MODE             MODE (tergantung retry)
 ```
 
 ### 1.2 State Machine Lengkap
 
 ```
-                    [POWER ON]
-                        │
-            ┌───────────┴──────────────┐
-           NVS kosong               NVS valid
-            │                          │
-            ▼                          ▼
-   ┌─────────────────┐       ┌──────────────────┐
-   │  COMMISSIONING  │◄──────│   OPERATIONAL    │◄──┐
-   │  (AP + WS)      │Double │   (STA + Sleep)  │   │
-   └────────┬────────┘Reset  └────────┬─────────┘   │
-            │                         │              │
-   Save &   │ Timeout                 │ MQTT cmd     │
-   Reboot   │ 10 mnt           WiFi   │ "diagnostic" │
-            │                 down    ▼              │
-            └──────────►  ┌──────────────────┐     │
-                          │   MAINTENANCE    │─────┘
-                          │   (STA + 3 mnt)  │ Timeout
-                          └──────────────────┘
-                                   ▲
-                          WiFi OK  │
-                    ┌──────────────────────┐
-                    │    OFFLINE MODE      │
-                    │  (Deep Sleep + retry)│
-                    │  backoff 5→15→60 mnt │
-                    └──────────────────────┘
-                          ↑
-             WiFi fail + NVS ada credentials
+                              [POWER ON]
+                                  │
+                      ┌───────────┴──────────────┐
+                     NVS kosong               NVS valid
+                      │                          │
+                      ▼                          ▼
+             ┌─────────────────┐       ┌──────────────────┐
+             │  COMMISSIONING  │◄──────│   OPERATIONAL    │◄──┐
+             │  (AP + WS)      │Double │   (STA + Sleep)  │   │
+             └────────┬────────┘Reset  └────┬──────┬──────┘   │
+                      │                     │      │          │
+             Save &   │ Timeout             │      │Sensor    │
+             Reboot   │ 10 mnt       WiFi   │      │Stuck     │
+                      │              down   ▼      ▼          │
+                                   ┌──────────┐  ┌──────────┐ │
+                                   │ OFFLINE  │  │MAINTEN-  │ │
+                                   │  MODE    │  │  ANCE    │ │
+                                   └────┬─────┘  └────┬─────┘ │
+                                        │             │       │
+                                        │             │       │
+                                    WiFi│       Sleep │       │
+                                    OK  ▼        1 hr ▼       │
+                                  ┌──────────────────────┐    │
+                                  │    REBOOT / WAKEUP   ├────┘
+                                  └──────────────────────┘
 ```
 
 ### 1.3 Pemicu Transisi Mode
@@ -73,15 +71,14 @@ COMMISSIONING    OPERATIONAL
 | Pemicu | Dari Mode | Ke Mode |
 | :--- | :--- | :--- |
 | NVS kosong saat boot | — | Commissioning |
-| **Double Reset** (2x tekan < 3 detik) | Operational | Commissioning |
-| **Long Press RESET > 10 detik** (factory reset) | Any | Commissioning (NVS bersih) |
+| **Double Reset** (2x reset dalam 3 detik) | Operational / Offline | Commissioning (NVS bersih) |
 | Klik "Save & Reboot" di Web UI | Commissioning | Operational |
 | Timeout 10 menit tanpa klien WS | Commissioning | Operational |
 | WiFi gagal + **NVS ada credentials** | Operational | **Offline Mode** |
 | WiFi gagal + **NVS kosong** | Operational | Commissioning |
 | WiFi kembali terhubung | Offline Mode | Operational |
-| MQTT command `{"cmd":"diagnostic"}` | Operational | Maintenance |
-| Timeout 3 menit | Maintenance | Operational |
+| **Sensor Stuck** (5 siklus membaca nilai konstan) | Operational | **Maintenance Mode** |
+| Timeout tidur 1 jam selesai | Maintenance | Operational (melalui siklus boot) |
 
 ---
 
@@ -166,73 +163,6 @@ Fitur unggulan untuk memudahkan teknisi mengkalibrasi tinggi pemasangan sensor t
 
 ---
 
-## 3. Mode Maintenance (Diagnostik Lapangan)
-
-Diaktifkan dari jarak jauh via MQTT atau dari Android untuk memeriksa kondisi sensor dan kamera tanpa harus ke lokasi fisik.
-
-### 3.1 Aktivasi
-
-```
-// Topic: ifms/{device_id}/cmd
-{ "cmd": "enter_maintenance" }
-```
-
-Perangkat akan bangun dari Deep Sleep, terhubung ke WiFi sebagai STA, dan menunggu perintah diagnostik selama **3 menit** sebelum kembali tidur.
-
-### 3.2 Diagnostik Sensor Ultrasonik
-
-Perangkat mengambil **30 sampel** (2× lebih banyak dari operasional normal) dan melaporkan:
-
-```json
-// Publish ke: device/{device_id}/diagnostic
-{
-  "type": "sensor_diagnostic",
-  "sample_count": 30,
-  "median_cm": 112.9,
-  "variance": 0.3,
-  "min_cm": 111.5,
-  "max_cm": 114.2,
-  "sensor_status": "OK"
-}
-```
-
-| Nilai `sensor_status` | Kondisi |
-| :--- | :--- |
-| `OK` | Sensor berfungsi normal |
-| `UNSTABLE` | Variance > 50 cm² (sensor kotor/terganggu) |
-| `FAULT` | Median = 0 atau > 500 cm (sensor rusak) |
-
-### 3.3 On-Demand Snapshot Kamera
-
-```json
-// Topic: ifms/{device_id}/cmd
-{ "cmd": "snapshot" }
-```
-
-ESP32 mengambil foto beresolusi penuh, upload ke backend:
-
-```
-POST http://<backend-host>/api/devices/{device_id}/snapshot
-```
-
-Android menampilkan foto tersebut untuk inspeksi visual kebersihan lensa dan arah kamera.
-
-### 3.4 Scheduled Daily Snapshot
-
-Setiap **24 jam** pada waktu yang dikonfigurasi (default: **07:00 pagi**), sistem otomatis mengambil 1 foto referensi harian dan menyimpannya ke backend — bahkan saat kondisi **NORMAL**. Berguna untuk audit visual jangka panjang.
-
-### 3.5 Auto Self-Check (Per Siklus Operasional)
-
-Setiap siklus bangun, sistem melakukan pengecekan mandiri sebelum mengirim data:
-
-| Kondisi Terdeteksi | Flag | Aksi |
-| :--- | :--- | :--- |
-| Median = 0 atau > 500 cm | `SENSOR_FAULT` | Kirim alert ke backend, skip transmisi data |
-| Variance antar-sampel > 50 cm² | `SENSOR_UNSTABLE` | Tandai data dengan flag, tetap kirim |
-| $D_{final}$ berubah > 30 cm dalam 1 siklus | `SPIKE_DETECTED` | Gunakan nilai median saja, skip smoothing |
-| Pembacaan konstan selama 5 siklus berturut | `SENSOR_STUCK` | Kirim alert, masuk Maintenance Mode |
-
----
 
 ## 4. Fitur Keandalan Data (Anti-Error Sampling)
 
@@ -292,15 +222,8 @@ Nilai $Height_{sensor}$ dan $Offset$ disimpan di NVS namespace `"sensor_cfg"`.
 
 Threshold dapat diperbarui dari Android oleh pengguna **Admin** tanpa *flash* ulang firmware.
 
-**Sinkronisasi via MQTT Command** — Menggunakan topik command:
-```json
-{
-  "cmd": "set_thresholds",
-  "normal_max_cm": 40.0,
-  "waspada_max_cm": 80.0,
-  "baseline_height_cm": 150.0
-}
-```
+**Sinkronisasi via Akses Fisik (Double Reset)** — Menggunakan mode Commissioning:
+Karena alat beroperasi sebagai *Pure Publisher*, jika admin ingin mengubah threshold, teknisi di lapangan harus menekan tombol reset 2 kali berturut-turut untuk masuk ke Web UI dan memasukkan threshold yang baru.
 *Catatan: Pengambilan konfigurasi (Fetch on Wake) via HTTP GET dinonaktifkan dalam implementasi saat ini, karena backend menangani sinkronisasi threshold melalui perintah MQTT secara langsung.*
 
 **NVS Storage**: Disimpan di namespace `"threshold_cfg"`. Jika backend tidak dapat dihubungi, gunakan nilai NVS terakhir. Jika NVS juga kosong, gunakan nilai default:
@@ -380,7 +303,7 @@ ws://<backend-host>/ws/devices/{device_id}
 
 ## 9. Protokol Komunikasi Backend
 
-### 9.1 MQTT — Telemetri & Perintah
+### 9.1 MQTT — Telemetri (Pure Publisher)
 
 | Parameter | Nilai |
 | :--- | :--- |
@@ -388,44 +311,28 @@ ws://<backend-host>/ws/devices/{device_id}
 | **Port** | 1883 |
 | **QoS** | 1 (At Least Once) |
 | **Topic Publish Telemetri** | `compro9.26.telyu-iot-drainage-be/sensor-data` |
-| **Topic Publish Diagnostik** | `device/{device_id}/diagnostic` |
-| **Topic Subscribe Perintah** | `device/{device_id}/cmd` |
-| **Topic Publish Response** | `device/{device_id}/res` |
 | **Topic Publish Log** | `device/{device_id}/log` |
 
 Contoh payload MQTT telemetri:
 ```json
 {
   "device_id": "ESP32-CAM-001",
-  "water_level_cm": 34.5,
+  "location": "Drainase_Sektor_Utara",
   "water_distance": 115.5,
-  "rain_detected": false,
+  "water_level_cm": 34.5,
   "status": "NORMAL",
+  "rain_detected": false,
   "sensor_flag": "OK",
-  "rssi_dbm": -62,
-  "time_synced": true,
-  "timestamp": 1715612400
+  "timestamp": 1717645000,
+  "next_wakeup_sec": 3600
 }
 ```
-
-Daftar perintah MQTT yang didukung (`device/{device_id}/cmd`):
-
-| Perintah | Aksi |
-| :--- | :--- |
-| `{"cmd":"enter_maintenance"}` | Masuk Mode Maintenance |
-| `{"cmd":"snapshot"}` | Jadwalkan ambil foto on-demand |
-| `{"cmd":"diagnostic"}` | Jadwalkan diagnostik sensor |
-| `{"cmd":"reboot_setup"}` | Factory reset dan Reboot ke Commissioning Mode |
-| `{"cmd":"update_wifi", "ssid":"...", "pass":"..."}` | Memperbarui WiFi dan reboot |
-| `{"cmd":"set_thresholds", "normal_max_cm":40, ...}` | Memperbarui threshold batas air |
-| `{"cmd":"force_snapshot"}` | Paksa ambil foto dan upload langsung |
-| `{"cmd":"set_flash_mode", "mode":"AUTO"}` | Mengatur mode flash (OFF, ON, AUTO) |
 
 ### 9.2 HTTP REST — Upload & Konfigurasi
 
 | Method | Endpoint | Fungsi |
 | :--- | :--- | :--- |
-| `POST` | `/api/upload-image` | Upload foto BAHAYA (multipart) |
+| `POST` | `/api/image` | Upload foto BAHAYA (multipart) |
 | `POST` | `/api/devices/{id}/snapshot` | Upload foto diagnostik/harian |
 
 *(Catatan: Endpoint `/config` dengan method GET/PUT ditujukan untuk komunikasi antara Backend dan Android, bukan langsung ke ESP32 karena ESP32 menggunakan MQTT)*
@@ -517,23 +424,7 @@ Karena tidak ada SD Card, foto yang gagal terkirim tidak bisa disimpan. Mekanism
 
 ---
 
-### 11.6 Keamanan MQTT (Token Verification)
 
-Setiap perintah via MQTT harus menyertakan token verifikasi:
-
-```json
-{
-  "cmd": "snapshot",
-  "token": "HMAC-SHA256(device_secret, timestamp)",
-  "ts": 1715612400
-}
-```
-
-- `device_secret` unik per perangkat, disimpan di NVS saat Commissioning.
-- Token dengan `ts` lebih dari **60 detik** dari waktu saat ini dianggap expired (tolak replay attack).
-- Untuk environment development: gunakan MQTT broker dengan username + password minimal.
-
----
 
 ### 11.7 Keamanan Web UI (PIN Captive Portal)
 
@@ -546,22 +437,18 @@ Setiap perintah via MQTT harus menyertakan token verifikasi:
 
 ### 11.8 Sinkronisasi Waktu (NTP)
 
-- Sync NTP ke `pool.ntp.org` dilakukan **sekali setiap siklus** setelah WiFi terhubung (timeout 5 detik).
-- Epoch time disimpan di RTC Memory bersama nilai `millis()` saat sync:
-  ```
-  current_time = rtc_epoch_base + (millis() - rtc_millis_base) / 1000
-  ```
-- Jika NTP gagal → gunakan estimasi dari RTC Memory terakhir, tandai payload dengan `"time_synced": false`.
+- Sinkronisasi NTP ke `pool.ntp.org` dilakukan setelah WiFi terhubung (timeout 5 detik).
+- Sistem menggunakan fungsi standar `time(nullptr)` untuk mendapatkan waktu terkini. Chip ESP32 memiliki pengontrol RTC internal yang melacak waktu Unix secara otomatis dan tetap menghitung waktu dengan akurat bahkan saat chip masuk ke mode *Deep Sleep*.
+- Jika sinkronisasi NTP gagal pada siklus tertentu, sistem tetap menggunakan penunjuk waktu internal RTC yang sudah disinkronkan pada siklus sebelumnya.
 
 ---
 
 ### 11.9 Deteksi Pergeseran Alat (Baseline Drift)
 
-Jika alat bergeser akibat banjir atau vandalisme, `Height_sensor` di NVS menjadi tidak valid:
+Jika alat bergeser akibat faktor lingkungan atau gangguan fisik, baseline ketinggian air dapat mengalami pergeseran:
 
-- Simpan `baseline_7d_avg` (rata-rata water_level 7 hari) di NVS, diperbarui setiap siklus.
-- Jika `water_level_saat_ini - baseline_7d_avg > 40 cm` selama **> 3 siklus berturut-turut** dan bukan kondisi BAHAYA → kirim alert `SENSOR_DISPLACED`.
-- Android menampilkan notifikasi untuk inspeksi fisik alat.
+- Sistem menghitung rata-rata baseline secara dinamis menggunakan metode *Exponential Weighted Moving Average* (EWMA) yang disimpan di RTC Memory (`baselineAvg`) melalui fungsi `SelfCheck::updateBaseline()`.
+- Nilai rata-rata baseline ini membantu menganalisis tren pergeseran posisi alat secara jangka panjang.
 
 ---
 
@@ -570,9 +457,9 @@ Jika alat bergeser akibat banjir atau vandalisme, `Height_sensor` di NVS menjadi
 Device ID di-generate otomatis dari MAC Address ESP32 saat pertama boot untuk mencegah duplikasi:
 
 ```
-Format: "IFMS-XXYYZZ"
+Format: "IOT-XXYYZZ"
 Dimana XX, YY, ZZ = 3 byte terakhir MAC Address (hex)
-Contoh: "IFMS-A1B2C3"
+Contoh: "IOT-A1B2C3"
 ```
 
 Disimpan di NVS namespace `"device_cfg"` key `"device_id"`.
@@ -616,6 +503,3 @@ WDT dikonfigurasi ulang per fase untuk efektivitas maksimal sebagai *safety net*
 | Pengukuran sensor | 10 detik |
 | Upload foto HTTP | 45 detik |
 | Masuk Deep Sleep | 5 detik |
-
-> [!WARNING]
-> Nilai `WDT_TIMEOUT 600` (10 menit) pada implementasi awal terlalu besar dan tidak efektif sebagai safety net. Harus disesuaikan per fase seperti di atas.
