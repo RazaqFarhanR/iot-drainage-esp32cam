@@ -134,7 +134,7 @@ void handleCameraUploads(const char *status, bool shouldSkipData) {
         }
     } else if (rtc.pendingUpload) {
         Serial.println("[OP] Max upload retries reached — clearing pending");
-        if (MQTTHandler::isConnected()) {
+        if (MQTTHandler::connect()) {
             MQTTHandler::publishLog("ERROR", "Gagal mengunggah foto BAHAYA setelah batas maksimal percobaan");
         }
         rtc.pendingUpload = false;
@@ -152,7 +152,7 @@ void handleCameraUploads(const char *status, bool shouldSkipData) {
                     rtc.lastUploadFailed = true;
                 } else {
                     rtc.lastUploadFailed = false;
-                    if (MQTTHandler::isConnected()) {
+                    if (MQTTHandler::connect()) {
                         MQTTHandler::publishLog("INFO", "Berhasil mengunggah foto kejadian banjir (BAHAYA) ke Backend");
                     }
                 }
@@ -235,8 +235,8 @@ void run() {
     uint64_t sleepSeconds = 0;
     const char *status = determineStatus(measurement, checkResult, sleepSeconds);
 
-    transmitData(measurement, checkResult, status, rainDetected, sleepSeconds);
     handleCameraUploads(status, checkResult.shouldSkipData);
+    transmitData(measurement, checkResult, status, rainDetected, sleepSeconds);
 
     RTCData &rtc = StateMachine::getRTCData();
     if (checkResult.enterMaintenance || rtc.maintenanceRequested) {
